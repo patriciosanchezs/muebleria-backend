@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: furniture-store
+  
+  data:
+    mongodb:
+      # MongoDB Atlas (Cloud)
+      uri: ${MONGODB_URL}
+      auto-index-creation: true
+  
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+# JWT Configuration
+jwt:
+  secret: 5Jf8kM2pN9qR3sT6vW8xY1zA4bC7dE0fG3hJ5kL8mN1oP4qR7sT0uV3wX6yZ9aB2
+  expiration: 86400000 # 24 horas en milisegundos
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.muebleria: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.data.mongodb: DEBUG
+    org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter: DEBUG
