@@ -63,7 +63,12 @@ nbdist/
 # Spring Boot
 application-local.yml
 application-dev.yml
-application-prod.yml
+
+# Environment variables (solo .env, NO .env.example)
+.env
+.env.local
+.env.production
+.env.*.local
 
 # Logs
 logs/

@@ -1,0 +1,46 @@
+# Configuración específica para producción
+spring:
+  application:
+    name: furniture-store
+  
+  data:
+    mongodb:
+      uri: ${MONGODB_URL}
+      auto-index-creation: true
+  
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  error:
+    include-message: always
+    include-binding-errors: always
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+# Logging - Menos verbose en producción
+logging:
+  level:
+    root: INFO
+    com.muebleria: INFO
+    org.springframework.security: WARN
+    org.springframework.data.mongodb: WARN
+
+# Actuator para healthcheck
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized

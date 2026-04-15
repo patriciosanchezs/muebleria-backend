@@ -415,3 +415,98 @@ El proyecto está completamente funcional. Para comenzar:
 2. Ejecuta `mvn spring-boot:run`
 3. Prueba los endpoints con Postman, cURL, o tu herramienta favorita
 4. Disfruta tu API de mueblería 🛋️
+
+---
+
+## 🐳 Docker
+
+### Build y Ejecución con Docker
+
+```bash
+# Build de la imagen
+docker build -t furniture-store-backend .
+
+# Ejecutar contenedor
+docker run -d \
+  --name furniture-backend \
+  -p 8080:8080 \
+  -e MONGODB_URL="mongodb+srv://user:pass@cluster.mongodb.net/furniture_store" \
+  -e JWT_SECRET="tu-secret-super-seguro" \
+  -e SPRING_PROFILES_ACTIVE="prod" \
+  furniture-store-backend
+
+# Ver logs
+docker logs -f furniture-backend
+
+# Detener
+docker stop furniture-backend
+```
+
+### Probar Localmente con Docker
+
+Ejecuta el script incluido:
+
+```bash
+chmod +x docker-test.sh
+./docker-test.sh
+```
+
+---
+
+## ☁️ Despliegue en Render
+
+Para desplegar esta aplicación en Render (PaaS gratuito), consulta la guía completa:
+
+📄 **[DEPLOY_RENDER.md](./DEPLOY_RENDER.md)**
+
+### Resumen Rápido:
+
+1. **Push tu código a GitHub**
+2. **Ir a [Render.com](https://render.com)** y crear un nuevo Web Service
+3. **Conectar tu repositorio**
+4. **Configurar**:
+   - Environment: Docker
+   - Root Directory: `backend`
+5. **Agregar variables de entorno**:
+   - `MONGODB_URL`: Tu URI de MongoDB Atlas
+   - `JWT_SECRET`: Genera con `openssl rand -base64 64`
+   - `SPRING_PROFILES_ACTIVE`: `prod`
+6. **Deploy** - Render construirá automáticamente desde el Dockerfile
+
+**Healthcheck automático**: `https://tu-app.onrender.com/api/actuator/health`
+
+---
+
+## 🌐 Configuración de CORS para Producción
+
+Si tu frontend está en otro dominio, actualiza `WebConfig.java`:
+
+```java
+@Override
+public void addCorsMappings(CorsRegistry registry) {
+    registry.addMapping("/**")
+            .allowedOrigins(
+                "http://localhost:3000",
+                "http://localhost:5173", 
+                "https://tu-frontend.netlify.app",  // Agregar tu dominio
+                "https://tu-frontend.vercel.app"
+            )
+            .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+            .allowedHeaders("*")
+            .allowCredentials(true);
+}
+```
+
+---
+
+## 📚 Archivos de Configuración
+
+- `Dockerfile` - Construcción multi-stage para producción
+- `render.yaml` - Blueprint para despliegue automático en Render
+- `application.yml` - Configuración para desarrollo local
+- `application-prod.yml` - Configuración para producción
+- `.dockerignore` - Archivos excluidos del build Docker
+- `docker-test.sh` - Script para probar Docker localmente
+- `DEPLOY_RENDER.md` - Guía completa de despliegue
+
+---
