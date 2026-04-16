@@ -32,16 +32,16 @@ RUN chown spring:spring app.jar
 # Cambiar a usuario no-root
 USER spring:spring
 
-# Exponer puerto (Render asigna dinámicamente, pero 8080 es el default)
+# Exponer puerto (se asigna dinámicamente por el hosting)
 EXPOSE 8080
 
-# Variables de entorno por defecto (se pueden sobrescribir en Render)
-ENV JAVA_OPTS="-Xmx512m -Xms256m" \
-    SERVER_PORT=8080
+# Variables de entorno por defecto
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
-# Healthcheck
+# Healthcheck (usa PORT si está definido, sino 8080)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-8080}/api/actuator/health || exit 1
 
 # Ejecutar la aplicación
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# Northflank/Railway/Render usan la variable PORT para asignar el puerto dinámicamente
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8080} -jar app.jar"]
