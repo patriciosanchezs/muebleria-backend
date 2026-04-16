@@ -541,6 +541,11 @@ public class SaleService {
         // Obtener ventas del mes actual, ya filtradas por locales autorizados
         List<Sale> allSales = getSalesByDateRange(startOfMonth, endOfMonth, authentication);
         
+        // Filtrar ventas que no tienen local asignado (datos inconsistentes)
+        allSales = allSales.stream()
+                .filter(sale -> sale.getLocal() != null)
+                .collect(Collectors.toList());
+        
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
             try {
@@ -554,7 +559,7 @@ public class SaleService {
             }
         }
         
-        // Agrupar por local
+        // Agrupar por local (ahora seguro que todos tienen local != null)
         Map<Local, List<Sale>> salesByLocal = allSales.stream()
                 .collect(Collectors.groupingBy(Sale::getLocal));
         
@@ -609,6 +614,7 @@ public class SaleService {
                 .filter(sale -> "DESPACHO".equals(sale.getTipoEntrega()))
                 .filter(sale -> "ENTREGADO".equals(sale.getEstadoEntrega()))
                 .filter(sale -> sale.getMontoFlete() != null && sale.getMontoFlete() > 0)
+                .filter(sale -> sale.getLocal() != null) // Filtrar ventas sin local
                 .collect(Collectors.toList());
         
         // Aplicar filtro de local si se especificó
@@ -642,7 +648,7 @@ public class SaleService {
                     Collectors.summingDouble(Sale::getMontoFlete)
                 ));
         
-        // Fletes por local
+        // Fletes por local (ahora seguro que todos tienen local != null)
         Map<String, Long> fletesPorLocal = fletes.stream()
                 .collect(Collectors.groupingBy(
                     sale -> sale.getLocal().name(),
