@@ -53,5 +53,21 @@ public class SaleRequest {
     // Formato: ISO 8601 (yyyy-MM-dd'T'HH:mm:ss)
     private String fechaDespacho;
     
+    // Local/Sucursal donde se realiza la venta
+    @NotBlank(message = "El local es requerido")
+    @Pattern(
+        regexp = "QUILLOTA|COQUIMBO|MUEBLES_SANCHEZ",
+        message = "Local debe ser: QUILLOTA, COQUIMBO o MUEBLES_SANCHEZ"
+    )
+    private String local;
+    
+    // Canal de venta
+    @NotBlank(message = "El canal de venta es requerido")
+    @Pattern(
+        regexp = "EN_LOCAL|ONLINE_BUSINESS|ONLINE_SIN_BUSINESS",
+        message = "Canal de venta debe ser: EN_LOCAL, ONLINE_BUSINESS o ONLINE_SIN_BUSINESS"
+    )
+    private String canalVenta;
+    
     private String notas;
 }

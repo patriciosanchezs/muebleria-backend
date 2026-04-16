@@ -4,6 +4,7 @@ import com.muebleria.dto.AuthResponse;
 import com.muebleria.dto.LoginRequest;
 import com.muebleria.dto.RegisterRequest;
 import com.muebleria.exception.BadRequestException;
+import com.muebleria.model.Role;
 import com.muebleria.model.User;
 import com.muebleria.repository.UserRepository;
 import com.muebleria.security.JwtTokenProvider;
@@ -14,8 +15,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
 import java.time.LocalDateTime;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -39,7 +43,7 @@ public class AuthService {
                 .username(request.getUsername())
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .roles(Set.of("ROLE_USER"))
+                .role(Role.VENDEDOR)
                 .createdAt(LocalDateTime.now())
                 .active(true)
                 .build();
@@ -53,7 +57,11 @@ public class AuthService {
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String token = tokenProvider.generateToken(authentication);
         
-        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRoles());
+        List<String> locales = user.getLocales() != null 
+                ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                : new ArrayList<>();
+        
+        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRole().name(), locales);
     }
     
     public AuthResponse login(LoginRequest request) {
@@ -67,6 +75,10 @@ public class AuthService {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new BadRequestException("Usuario no encontrado"));
         
-        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRoles());
+        List<String> locales = user.getLocales() != null 
+                ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                : new ArrayList<>();
+        
+        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRole().name(), locales);
     }
 }

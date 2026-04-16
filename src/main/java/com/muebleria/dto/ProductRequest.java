@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import java.util.Map;
 
 @Data
 public class ProductRequest {
@@ -20,9 +21,8 @@ public class ProductRequest {
     @NotBlank(message = "La categoría es requerida")
     private String categoria;
     
-    @NotNull(message = "El stock es requerido")
-    @Min(value = 0, message = "El stock debe ser mayor o igual a 0")
-    private Integer stock;
+    @NotNull(message = "El stock por local es requerido")
+    private Map<String, Integer> stockPorLocal; // Key: nombre del local (QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ)
     
     private String imageUrl;
 }

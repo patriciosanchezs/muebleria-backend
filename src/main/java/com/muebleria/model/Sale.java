@@ -54,6 +54,24 @@ public class Sale {
     // Fecha programada para el despacho (solo si tipoEntrega = DESPACHO)
     private LocalDateTime fechaDespacho;
     
+    // Usuario que entregó el pedido (fletero) - solo si estadoEntrega = ENTREGADO
+    private String entregadoPor;
+    
+    // Fecha en que se entregó el pedido
+    private LocalDateTime fechaEntrega;
+    
+    // Información del flete (solo si tipoEntrega = DESPACHO y estadoEntrega = ENTREGADO)
+    private Double montoFlete;
+    
+    // Método de pago del flete: EFECTIVO, TRANSFERENCIA, DEBITO, CREDITO
+    private String metodoPagoFlete;
+    
+    // Local/Sucursal donde se realizó la venta
+    private Local local;
+    
+    // Canal de venta: EN_LOCAL, ONLINE_BUSINESS, ONLINE_SIN_BUSINESS
+    private CanalVenta canalVenta;
+    
     // Notas adicionales
     private String notas;
 }

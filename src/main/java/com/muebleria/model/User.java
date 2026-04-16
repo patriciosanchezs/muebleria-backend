@@ -8,8 +8,8 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.index.Indexed;
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
+import java.util.ArrayList;
 
 @Data
 @NoArgsConstructor
@@ -29,12 +29,24 @@ public class User {
     
     private String password;
     
+    // Rol del usuario: ADMINISTRADOR, ADMIN_LOCAL, VENDEDOR, FLETERO
     @Builder.Default
-    private Set<String> roles = new HashSet<>();
+    private Role role = Role.VENDEDOR;
+    
+    // Locales asignados al usuario
+    // - ADMINISTRADOR: null/vacío (acceso a todos)
+    // - ADMIN_LOCAL: 1 o más locales
+    // - VENDEDOR: 1 o más locales (puede vender en varios)
+    // - FLETERO: exactamente 1 local
+    @Builder.Default
+    private List<Local> locales = new ArrayList<>();
     
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
     
     @Builder.Default
     private boolean active = true;
+    
+    // Usuario que creó esta cuenta (solo para auditoría)
+    private String createdBy;
 }

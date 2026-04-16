@@ -21,12 +21,13 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado: " + username));
         
+        // Convertir el rol a autoridad con prefijo ROLE_
+        String authority = "ROLE_" + user.getRole().name();
+        
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getUsername())
                 .password(user.getPassword())
-                .authorities(user.getRoles().stream()
-                        .map(SimpleGrantedAuthority::new)
-                        .collect(Collectors.toList()))
+                .authorities(authority)
                 .accountExpired(!user.isActive())
                 .accountLocked(!user.isActive())
                 .credentialsExpired(false)
