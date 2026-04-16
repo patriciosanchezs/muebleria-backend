@@ -35,8 +35,13 @@ USER spring:spring
 # Exponer puerto (se asigna dinámicamente por el hosting)
 EXPOSE 8080
 
-# Variables de entorno por defecto
-ENV JAVA_OPTS="-Xmx512m -Xms256m"
+# Variables de entorno optimizadas para plan gratuito (512MB RAM)
+# -Xmx: Máxima heap memory
+# -Xms: Inicial heap memory
+# -XX:MaxMetaspaceSize: Límite para metaspace (clases, métodos)
+# -XX:+UseSerialGC: Garbage collector optimizado para memoria reducida
+# -XX:MaxRAM: Límite total de RAM que puede usar la JVM
+ENV JAVA_OPTS="-Xmx256m -Xms128m -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC -XX:MaxRAM=400m -Djava.security.egd=file:/dev/./urandom"
 
 # Healthcheck (usa PORT si está definido, sino 8080)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
