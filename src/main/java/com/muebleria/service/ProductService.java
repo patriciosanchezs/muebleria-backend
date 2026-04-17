@@ -10,9 +10,7 @@ import com.muebleria.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,11 +18,26 @@ import java.util.stream.Collectors;
 public class ProductService {
     
     private final ProductRepository productRepository;
-    private final AuthHelper authHelper;
     
-    public List<ProductResponse> getAllProducts(org.springframework.security.core.Authentication authentication) {
+    /**
+     * Obtiene productos filtrados por local.
+     * @param local Local para filtrar productos (requerido)
+     */
+    public List<ProductResponse> getAllProductsByLocal(String local) {
+        if (local == null || local.isEmpty()) {
+            throw new BadRequestException("El parámetro 'local' es requerido");
+        }
+        
+        Local localEnum;
+        try {
+            localEnum = Local.valueOf(local);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Local inválido: " + local);
+        }
+        
         return productRepository.findAll().stream()
-                .map(product -> convertToResponse(product, authentication))
+                .filter(p -> localEnum.equals(p.getLocal()))
+                .map(this::convertToResponse)
                 .collect(Collectors.toList());
     }
     
@@ -33,52 +46,81 @@ public class ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado con id: " + id));
     }
     
-    public ProductResponse getProductResponseById(String id, org.springframework.security.core.Authentication authentication) {
-        return convertToResponse(getProductById(id), authentication);
+    public ProductResponse getProductResponseById(String id) {
+        return convertToResponse(getProductById(id));
     }
     
-    public List<ProductResponse> getProductsByCategoria(String categoria, org.springframework.security.core.Authentication authentication) {
-        return productRepository.findByCategoria(categoria).stream()
-                .map(product -> convertToResponse(product, authentication))
-                .collect(Collectors.toList());
-    }
-    
-    public List<ProductResponse> searchProductsByNombre(String nombre, org.springframework.security.core.Authentication authentication) {
-        return productRepository.findByNombreContainingIgnoreCase(nombre).stream()
-                .map(product -> convertToResponse(product, authentication))
-                .collect(Collectors.toList());
-    }
-    
-    public ProductResponse createProduct(ProductRequest request, org.springframework.security.core.Authentication authentication) {
-        // Validar que todos los stocks sean >= 0
-        validateStockPorLocal(request.getStockPorLocal());
+    public List<ProductResponse> getProductsByCategoria(String categoria, String local) {
+        if (local == null || local.isEmpty()) {
+            throw new BadRequestException("El parámetro 'local' es requerido");
+        }
         
-        // Convertir Map<String, Integer> a Map<Local, Integer>
-        Map<Local, Integer> stockMap = convertStockToLocalMap(request.getStockPorLocal());
+        Local localEnum;
+        try {
+            localEnum = Local.valueOf(local);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Local inválido: " + local);
+        }
+        
+        return productRepository.findByCategoria(categoria).stream()
+                .filter(p -> localEnum.equals(p.getLocal()))
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+    
+    public List<ProductResponse> searchProductsByNombre(String nombre, String local) {
+        if (local == null || local.isEmpty()) {
+            throw new BadRequestException("El parámetro 'local' es requerido");
+        }
+        
+        Local localEnum;
+        try {
+            localEnum = Local.valueOf(local);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Local inválido: " + local);
+        }
+        
+        return productRepository.findByNombreContainingIgnoreCase(nombre).stream()
+                .filter(p -> localEnum.equals(p.getLocal()))
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+    
+    public ProductResponse createProduct(ProductRequest request) {
+        // Validar local
+        Local local;
+        try {
+            local = Local.valueOf(request.getLocal());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Local inválido: " + request.getLocal());
+        }
         
         Product product = Product.builder()
                 .nombre(request.getNombre())
                 .descripcion(request.getDescripcion())
                 .precio(request.getPrecio())
                 .categoria(request.getCategoria())
-                .stockPorLocal(stockMap)
+                .local(local)
+                .stock(request.getStock())
                 .imageUrl(request.getImageUrl())
                 .fechaCreacion(LocalDateTime.now())
                 .disponible(true)
                 .build();
         
         Product saved = productRepository.save(product);
-        return convertToResponse(saved, authentication);
+        return convertToResponse(saved);
     }
     
-    public ProductResponse updateProduct(String id, ProductRequest request, org.springframework.security.core.Authentication authentication) {
+    public ProductResponse updateProduct(String id, ProductRequest request) {
         Product existingProduct = getProductById(id);
         
-        // Validar que todos los stocks sean >= 0
-        validateStockPorLocal(request.getStockPorLocal());
-        
-        // Convertir Map<String, Integer> a Map<Local, Integer>
-        Map<Local, Integer> stockMap = convertStockToLocalMap(request.getStockPorLocal());
+        // Validar local
+        Local local;
+        try {
+            local = Local.valueOf(request.getLocal());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Local inválido: " + request.getLocal());
+        }
         
         Product updatedProduct = Product.builder()
                 .id(existingProduct.getId())
@@ -86,15 +128,16 @@ public class ProductService {
                 .descripcion(request.getDescripcion())
                 .precio(request.getPrecio())
                 .categoria(request.getCategoria())
-                .stockPorLocal(stockMap)
+                .local(local)
+                .stock(request.getStock())
                 .imageUrl(request.getImageUrl())
                 .fechaCreacion(existingProduct.getFechaCreacion())
                 .fechaActualizacion(LocalDateTime.now())
-                .disponible(existingProduct.getStockTotal() > 0)
+                .disponible(request.getStock() > 0)
                 .build();
         
         Product saved = productRepository.save(updatedProduct);
-        return convertToResponse(saved, authentication);
+        return convertToResponse(saved);
     }
     
     public void deleteProduct(String id) {
@@ -103,20 +146,37 @@ public class ProductService {
     }
     
     /**
-     * Obtiene el stock de un producto en un local específico
+     * Obtiene el stock de un producto (ya es específico por local)
      */
     public Integer getStockByLocal(String productId, Local local) {
         Product product = getProductById(productId);
-        return product.getStock(local);
+        
+        // Validar que el producto pertenece al local solicitado
+        if (!local.equals(product.getLocal())) {
+            throw new BadRequestException(
+                String.format("El producto '%s' no pertenece al local %s", 
+                    product.getNombre(), local.name())
+            );
+        }
+        
+        return product.getStock();
     }
     
     /**
-     * Descuenta stock de un producto en un local específico. Útil para ventas.
+     * Descuenta stock de un producto. Útil para ventas.
      */
     public void decreaseStock(String productId, Local local, Integer cantidad) {
         Product product = getProductById(productId);
         
-        Integer stockActual = product.getStock(local);
+        // Validar que el producto pertenece al local
+        if (!local.equals(product.getLocal())) {
+            throw new BadRequestException(
+                String.format("El producto '%s' no pertenece al local %s", 
+                    product.getNombre(), local.name())
+            );
+        }
+        
+        Integer stockActual = product.getStock();
         if (stockActual < cantidad) {
             throw new BadRequestException(
                 String.format("Stock insuficiente para el producto '%s' en %s. Disponible: %d, Requerido: %d",
@@ -124,11 +184,11 @@ public class ProductService {
             );
         }
         
-        product.reducirStock(local, cantidad);
+        product.setStock(stockActual - cantidad);
         product.setFechaActualizacion(LocalDateTime.now());
         
-        // Si el stock total llega a 0, marcar como no disponible
-        if (product.getStockTotal() == 0) {
+        // Si el stock llega a 0, marcar como no disponible
+        if (product.getStock() == 0) {
             product.setDisponible(false);
         }
         
@@ -136,66 +196,55 @@ public class ProductService {
     }
     
     /**
-     * Valida si hay stock disponible para un producto en un local específico.
+     * Incrementa el stock de un producto.
+     * Se usa al rechazar ventas pendientes para devolver el stock.
+     */
+    public void increaseStock(String productId, Local local, Integer cantidad) {
+        Product product = getProductById(productId);
+        
+        // Validar que el producto pertenece al local
+        if (!local.equals(product.getLocal())) {
+            throw new BadRequestException(
+                String.format("El producto '%s' no pertenece al local %s", 
+                    product.getNombre(), local.name())
+            );
+        }
+        
+        product.setStock(product.getStock() + cantidad);
+        product.setFechaActualizacion(LocalDateTime.now());
+        
+        // Si el producto estaba marcado como no disponible y ahora tiene stock, marcarlo como disponible
+        if (!product.isDisponible() && product.getStock() > 0) {
+            product.setDisponible(true);
+        }
+        
+        productRepository.save(product);
+    }
+    
+    /**
+     * Valida si hay stock disponible para un producto.
      */
     public boolean hasStock(String productId, Local local, Integer cantidad) {
         Product product = getProductById(productId);
-        return product.getStock(local) >= cantidad && product.isDisponible();
+        
+        // Validar que el producto pertenece al local
+        if (!local.equals(product.getLocal())) {
+            return false;
+        }
+        
+        return product.getStock() >= cantidad && product.isDisponible();
     }
     
     // Helper methods
-    private void validateStockPorLocal(Map<String, Integer> stockPorLocal) {
-        if (stockPorLocal == null || stockPorLocal.isEmpty()) {
-            throw new BadRequestException("Debe especificar stock para al menos un local");
-        }
-        
-        for (Map.Entry<String, Integer> entry : stockPorLocal.entrySet()) {
-            if (entry.getValue() < 0) {
-                throw new BadRequestException("El stock no puede ser negativo para el local: " + entry.getKey());
-            }
-        }
-    }
-    
-    private Map<Local, Integer> convertStockToLocalMap(Map<String, Integer> stockPorLocal) {
-        Map<Local, Integer> result = new HashMap<>();
-        for (Map.Entry<String, Integer> entry : stockPorLocal.entrySet()) {
-            try {
-                Local local = Local.valueOf(entry.getKey());
-                result.put(local, entry.getValue());
-            } catch (IllegalArgumentException e) {
-                throw new BadRequestException("Local inválido: " + entry.getKey());
-            }
-        }
-        return result;
-    }
-    
-    private ProductResponse convertToResponse(Product product, org.springframework.security.core.Authentication authentication) {
-        // Obtener locales autorizados del usuario
-        List<Local> authorizedLocales = authHelper.getAuthorizedLocales(authentication);
-        
-        // Convertir Map<Local, Integer> a Map<String, Integer>
-        // Filtrado por locales autorizados
-        Map<String, Integer> stockMap = new HashMap<>();
-        Integer stockTotal = 0;
-        
-        if (product.getStockPorLocal() != null) {
-            for (Map.Entry<Local, Integer> entry : product.getStockPorLocal().entrySet()) {
-                // Solo incluir stock de locales autorizados
-                if (authorizedLocales.contains(entry.getKey())) {
-                    stockMap.put(entry.getKey().name(), entry.getValue());
-                    stockTotal += entry.getValue();
-                }
-            }
-        }
-        
+    private ProductResponse convertToResponse(Product product) {
         return ProductResponse.builder()
                 .id(product.getId())
                 .nombre(product.getNombre())
                 .descripcion(product.getDescripcion())
                 .precio(product.getPrecio())
                 .categoria(product.getCategoria())
-                .stockPorLocal(stockMap)
-                .stockTotal(stockTotal) // Stock total solo de locales autorizados
+                .local(product.getLocal() != null ? product.getLocal().name() : null)
+                .stock(product.getStock())
                 .imageUrl(product.getImageUrl())
                 .fechaCreacion(product.getFechaCreacion())
                 .fechaActualizacion(product.getFechaActualizacion())

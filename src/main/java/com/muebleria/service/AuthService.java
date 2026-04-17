@@ -61,7 +61,11 @@ public class AuthService {
                 ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
                 : new ArrayList<>();
         
-        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRole().name(), locales);
+        List<String> subRoles = user.getSubRoles() != null
+                ? user.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
+                : new ArrayList<>();
+        
+        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRole().name(), locales, subRoles);
     }
     
     public AuthResponse login(LoginRequest request) {
@@ -79,6 +83,10 @@ public class AuthService {
                 ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
                 : new ArrayList<>();
         
-        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRole().name(), locales);
+        List<String> subRoles = user.getSubRoles() != null
+                ? user.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
+                : new ArrayList<>();
+        
+        return new AuthResponse(token, user.getUsername(), user.getEmail(), user.getRole().name(), locales, subRoles);
     }
 }

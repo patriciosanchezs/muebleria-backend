@@ -26,4 +26,9 @@ public interface SaleRepository extends MongoRepository<Sale, String> {
     List<Sale> findByFechaDespachoBetween(LocalDateTime start, LocalDateTime end);
     
     List<Sale> findByEstadoEntregaAndFechaDespachoBetween(String estadoEntrega, LocalDateTime start, LocalDateTime end);
+    
+    // Consultas para aprobación de ventas
+    List<Sale> findByEstadoAprobacion(String estadoAprobacion);
+    
+    List<Sale> findByEstadoAprobacionAndFechaVentaBetween(String estadoAprobacion, LocalDateTime start, LocalDateTime end);
 }

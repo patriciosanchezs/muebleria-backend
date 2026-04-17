@@ -60,6 +60,15 @@ public class SaleService {
         // 2. Validar que todos los productos tengan stock suficiente en el local especificado
         validateStockByLocal(request.getItems(), local);
         
+        // Determinar el dueño de la venta: vendedor asignado o usuario de sesión
+        String vendedorFinal = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty() 
+                ? request.getVendedorAsignado() 
+                : vendedor;
+        
+        // Obtener usuario actual (quien registra la venta) para registrar quien aplicó descuentos
+        User currentUser = userRepository.findByUsername(vendedor)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+        
         // 3. Crear items de la venta y calcular total
         List<SaleItem> saleItems = new ArrayList<>();
         double totalCLP = 0.0;
@@ -67,15 +76,40 @@ public class SaleService {
         for (SaleItemRequest itemRequest : request.getItems()) {
             Product product = productService.getProductById(itemRequest.getProductId());
             
-            double subtotal = product.getPrecio() * itemRequest.getCantidad();
+            // Validar y aplicar descuento si existe
+            double descuento = itemRequest.getDescuento() != null ? itemRequest.getDescuento() : 0.0;
             
-            SaleItem saleItem = SaleItem.builder()
+            // Validación: el descuento no puede exceder el precio del producto
+            if (descuento > product.getPrecio()) {
+                throw new BadRequestException(
+                    String.format("El descuento ($%,.0f) no puede ser mayor al precio del producto '%s' ($%,.0f)", 
+                        descuento, product.getNombre(), product.getPrecio())
+                );
+            }
+            
+            // Validación: el descuento no puede ser negativo
+            if (descuento < 0) {
+                throw new BadRequestException("El descuento no puede ser negativo");
+            }
+            
+            // Calcular precio con descuento
+            double precioConDescuento = product.getPrecio() - descuento;
+            double subtotal = precioConDescuento * itemRequest.getCantidad();
+            
+            SaleItem.SaleItemBuilder saleItemBuilder = SaleItem.builder()
                     .productId(product.getId())
                     .productName(product.getNombre())
                     .cantidad(itemRequest.getCantidad())
                     .precioUnitario(product.getPrecio())
-                    .subtotal(subtotal)
-                    .build();
+                    .descuento(descuento)
+                    .subtotal(subtotal);
+            
+            // Si hay descuento, registrar quién lo aplicó
+            if (descuento > 0) {
+                saleItemBuilder.descuentoAplicadoPor(currentUser.getUsername());
+            }
+            
+            SaleItem saleItem = saleItemBuilder.build();
             
             saleItems.add(saleItem);
             totalCLP += subtotal;
@@ -86,7 +120,7 @@ public class SaleService {
                 .items(saleItems)
                 .totalCLP(totalCLP)
                 .metodoPago(request.getMetodoPago())
-                .vendedor(vendedor)
+                .vendedor(vendedorFinal)  // Vendedor asignado o usuario de sesión
                 .clienteNombre(request.getClienteNombre())
                 .clienteDireccion(request.getClienteDireccion())
                 .clienteCorreo(request.getClienteCorreo())
@@ -96,6 +130,22 @@ public class SaleService {
                 .canalVenta(canalVenta)
                 .notas(request.getNotas())
                 .fechaVenta(LocalDateTime.now());
+        
+        // Determinar estado de aprobación según el rol del vendedor final (dueño de la venta)
+        User vendedorUser = userRepository.findByUsername(vendedorFinal)
+                .orElseThrow(() -> new ResourceNotFoundException("Vendedor no encontrado"));
+        
+        if ("VENDEDOR".equals(vendedorUser.getRole().name())) {
+            // Vendedores crean ventas en estado PENDIENTE_APROBACION
+            saleBuilder.estadoAprobacion("PENDIENTE_APROBACION");
+        } else {
+            // Admins, Admin Local y Encargado Local crean ventas ya APROBADAS
+            saleBuilder.estadoAprobacion("APROBADA")
+                    .fechaAprobacion(LocalDateTime.now());
+        }
+        
+        // Siempre registrar quién registró/aprobó esta venta (usuario de sesión)
+        saleBuilder.aprobadoPor(vendedor);
         
         // Si el tipo de entrega es ENTREGADO, marcar como entregado inmediatamente
         if ("ENTREGADO".equals(request.getTipoEntrega())) {
@@ -115,24 +165,75 @@ public class SaleService {
         
         Sale savedSale = saleRepository.save(sale);
         
-        // 5. Descontar stock de productos en el local específico
-        for (SaleItemRequest itemRequest : request.getItems()) {
-            productService.decreaseStock(itemRequest.getProductId(), local, itemRequest.getCantidad());
+        // 5. Descontar stock solo si la venta está APROBADA
+        // Para ventas pendientes, el stock se descuenta al aprobar
+        if ("APROBADA".equals(savedSale.getEstadoAprobacion())) {
+            for (SaleItemRequest itemRequest : request.getItems()) {
+                productService.decreaseStock(itemRequest.getProductId(), local, itemRequest.getCantidad());
+            }
         }
         
-        // 6. Crear comisión si el usuario es VENDEDOR
-        try {
-            User user = userRepository.findByUsername(vendedor).orElse(null);
-            if (user != null && "VENDEDOR".equals(user.getRole().name())) {
-                commissionService.createCommission(savedSale, vendedor);
+        // 6. Crear comisión solo si la venta está APROBADA
+        // Para vendedores y encargados locales, la comisión se crea al aprobar la venta
+        if ("APROBADA".equals(savedSale.getEstadoAprobacion())) {
+            try {
+                // Determinar quién recibe la comisión de vendedor
+                String vendedorParaComision = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()
+                        ? request.getVendedorAsignado()  // Si hay vendedor asignado, usar ese
+                        : vendedor;  // Si no, usar quien registró la venta
+                
+                // Validar que el vendedor para comisión exista y sea VENDEDOR o ENCARGADO_LOCAL
+                User comissionUser = userRepository.findByUsername(vendedorParaComision).orElse(null);
+                
+                // Crear comisión solo si:
+                // 1. Hay un vendedor asignado explícitamente, O
+                // 2. Quien registra la venta es VENDEDOR o ENCARGADO_LOCAL (sin asignación)
+                boolean shouldCreateCommission = false;
+                
+                if (request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()) {
+                    // Caso 1: Hay vendedor asignado - siempre crear comisión para ese vendedor
+                    if (comissionUser != null && ("VENDEDOR".equals(comissionUser.getRole().name()) || "ENCARGADO_LOCAL".equals(comissionUser.getRole().name()))) {
+                        shouldCreateCommission = true;
+                    }
+                } else {
+                    // Caso 2: No hay vendedor asignado - crear comisión solo si quien registra es VENDEDOR o ENCARGADO_LOCAL
+                    if (currentUser != null && ("VENDEDOR".equals(currentUser.getRole().name()) || "ENCARGADO_LOCAL".equals(currentUser.getRole().name()))) {
+                        shouldCreateCommission = true;
+                    }
+                }
+                
+                if (shouldCreateCommission && comissionUser != null) {
+                    commissionService.createCommission(savedSale, vendedorParaComision);
+                }
+                
+                // Crear comisiones para todos los ADMIN_LOCAL que tienen comisión habilitada en este local
+                createAdminLocalCommissions(savedSale);
+            } catch (Exception e) {
+                // Si falla la creación de comisión, no afecta la venta
+                System.err.println("Error creando comisión: " + e.getMessage());
             }
-        } catch (Exception e) {
-            // Si falla la creación de comisión, no afecta la venta
-            // Log del error (en producción usar logger)
-            System.err.println("Error creando comisión: " + e.getMessage());
         }
         
         return savedSale;
+    }
+    
+    /**
+     * Crea comisiones para todos los ADMIN_LOCAL que tienen habilitado el local de la venta.
+     * Reglas de comisión:
+     * - Producto < 140.000 CLP → Comisión = 5.000 CLP
+     * - Producto >= 140.000 CLP → Comisión = 10.000 CLP
+     */
+    private void createAdminLocalCommissions(Sale sale) {
+        // Buscar todos los ADMIN_LOCAL que tienen este local en su lista de comisiones
+        List<User> adminLocales = userRepository.findAll().stream()
+                .filter(u -> u.getRole().name().equals("ADMIN_LOCAL"))
+                .filter(u -> u.getLocalesConComision() != null && u.getLocalesConComision().contains(sale.getLocal()))
+                .collect(Collectors.toList());
+        
+        // Para cada ADMIN_LOCAL, crear comisiones
+        for (User adminLocal : adminLocales) {
+            commissionService.createAdminLocalCommission(sale, adminLocal.getId());
+        }
     }
     
     /**
@@ -145,12 +246,21 @@ public class SaleService {
             try {
                 Product product = productService.getProductById(item.getProductId());
                 
+                // Validar que el producto pertenece al local de la venta
+                if (!local.equals(product.getLocal())) {
+                    errors.add(String.format(
+                        "Producto '%s' no pertenece al local %s",
+                        product.getNombre(), local.name()
+                    ));
+                    continue;
+                }
+                
                 if (!product.isDisponible()) {
                     errors.add(String.format("Producto '%s' no está disponible", product.getNombre()));
                     continue;
                 }
                 
-                Integer stockEnLocal = product.getStock(local);
+                Integer stockEnLocal = product.getStock();
                 if (stockEnLocal < item.getCantidad()) {
                     errors.add(String.format(
                         "Stock insuficiente para '%s' en %s. Disponible: %d, Requerido: %d",
@@ -173,6 +283,87 @@ public class SaleService {
     public List<Sale> getAllSales(org.springframework.security.core.Authentication authentication) {
         List<Sale> allSales = saleRepository.findAll();
         return filterByAuthorizedLocales(allSales, authentication);
+    }
+    
+    /**
+     * Obtiene ventas con filtros aplicados (filtradas por locales autorizados).
+     * Por defecto devuelve solo las ventas del día actual si no se especifica allTime=true.
+     */
+    public List<Sale> getSalesWithFilters(
+            String local, 
+            String vendedor, 
+            String metodoPago, 
+            String estadoEntrega,
+            LocalDateTime startDate, 
+            LocalDateTime endDate, 
+            Boolean todayOnly,
+            Boolean allTime,
+            org.springframework.security.core.Authentication authentication) {
+        
+        List<Sale> sales;
+        
+        // Si allTime es true, traer todas las ventas
+        if (allTime != null && allTime) {
+            sales = saleRepository.findAll();
+        }
+        // Si todayOnly es true o no hay fechas especificadas, usar ventas del día
+        else if ((todayOnly != null && todayOnly) || (startDate == null && endDate == null)) {
+            LocalDate today = LocalDate.now();
+            LocalDateTime startOfDay = today.atStartOfDay();
+            LocalDateTime endOfDay = today.atTime(23, 59, 59);
+            sales = saleRepository.findByFechaVentaBetween(startOfDay, endOfDay);
+        }
+        // Si hay rango de fechas, usarlo
+        else if (startDate != null || endDate != null) {
+            LocalDateTime start = startDate != null ? startDate : LocalDateTime.of(2000, 1, 1, 0, 0);
+            LocalDateTime end = endDate != null ? endDate : LocalDateTime.now().plusDays(1);
+            sales = saleRepository.findByFechaVentaBetween(start, end);
+        }
+        // Por defecto, ventas del día actual
+        else {
+            LocalDate today = LocalDate.now();
+            LocalDateTime startOfDay = today.atStartOfDay();
+            LocalDateTime endOfDay = today.atTime(23, 59, 59);
+            sales = saleRepository.findByFechaVentaBetween(startOfDay, endOfDay);
+        }
+        
+        // Aplicar filtros adicionales
+        if (local != null && !local.isEmpty() && !local.equals("ALL")) {
+            try {
+                Local filterLocal = Local.valueOf(local);
+                sales = sales.stream()
+                        .filter(sale -> sale.getLocal() == filterLocal)
+                        .collect(Collectors.toList());
+            } catch (IllegalArgumentException e) {
+                // Local inválido, ignorar filtro
+            }
+        }
+        
+        if (vendedor != null && !vendedor.isEmpty() && !vendedor.equals("ALL")) {
+            sales = sales.stream()
+                    .filter(sale -> vendedor.equals(sale.getVendedor()))
+                    .collect(Collectors.toList());
+        }
+        
+        if (metodoPago != null && !metodoPago.isEmpty() && !metodoPago.equals("ALL")) {
+            sales = sales.stream()
+                    .filter(sale -> metodoPago.equals(sale.getMetodoPago()))
+                    .collect(Collectors.toList());
+        }
+        
+        if (estadoEntrega != null && !estadoEntrega.isEmpty() && !estadoEntrega.equals("ALL")) {
+            sales = sales.stream()
+                    .filter(sale -> estadoEntrega.equals(sale.getEstadoEntrega()))
+                    .collect(Collectors.toList());
+        }
+        
+        // Filtrar por locales autorizados
+        sales = filterByAuthorizedLocales(sales, authentication);
+        
+        // Ordenar por fecha más reciente primero
+        return sales.stream()
+                .sorted((a, b) -> b.getFechaVenta().compareTo(a.getFechaVenta()))
+                .collect(Collectors.toList());
     }
     
     /**
@@ -672,5 +863,268 @@ public class SaleService {
         stats.put("totalPorLocal", totalPorLocal);
         
         return stats;
+    }
+    
+    /**
+     * Obtiene ventas pendientes de aprobación filtradas por locales del usuario.
+     */
+    public List<Sale> getPendingSales(org.springframework.security.core.Authentication authentication) {
+        List<Sale> pendingSales = saleRepository.findByEstadoAprobacion("PENDIENTE_APROBACION");
+        
+        // Filtrar por locales del usuario autenticado
+        List<Local> userLocales = authHelper.getUserLocales(authentication);
+        if (authHelper.isAdmin(authentication)) {
+            return pendingSales; // Admin ve todas
+        }
+        
+        return pendingSales.stream()
+                .filter(sale -> userLocales.contains(sale.getLocal()))
+                .collect(Collectors.toList());
+    }
+    
+    /**
+     * Obtiene ventas aprobadas filtradas por locales del usuario.
+     */
+    public List<Sale> getApprovedSales(org.springframework.security.core.Authentication authentication) {
+        List<Sale> approvedSales = saleRepository.findByEstadoAprobacion("APROBADA");
+        
+        // Filtrar por locales del usuario autenticado
+        List<Local> userLocales = authHelper.getUserLocales(authentication);
+        if (authHelper.isAdmin(authentication)) {
+            return approvedSales; // Admin ve todas
+        }
+        
+        return approvedSales.stream()
+                .filter(sale -> userLocales.contains(sale.getLocal()))
+                .collect(Collectors.toList());
+    }
+    
+    /**
+     * Aprueba una venta pendiente.
+     */
+    @Transactional
+    public Sale approveSale(String saleId, String approvedBy) {
+        Sale sale = getSaleById(saleId);
+        
+        if (!"PENDIENTE_APROBACION".equals(sale.getEstadoAprobacion())) {
+            throw new BadRequestException("La venta no está pendiente de aprobación");
+        }
+        
+        sale.setEstadoAprobacion("APROBADA");
+        sale.setAprobadoPor(approvedBy);
+        sale.setFechaAprobacion(LocalDateTime.now());
+        
+        Sale approvedSale = saleRepository.save(sale);
+        
+        // Descontar stock ahora que la venta fue aprobada
+        for (SaleItem item : approvedSale.getItems()) {
+            productService.decreaseStock(item.getProductId(), approvedSale.getLocal(), item.getCantidad());
+        }
+        
+        // Crear comisión ahora que la venta fue aprobada
+        try {
+            commissionService.createCommission(approvedSale, sale.getVendedor());
+        } catch (Exception e) {
+            System.err.println("Error creando comisión: " + e.getMessage());
+        }
+        
+        return approvedSale;
+    }
+    
+    /**
+     * Rechaza una venta pendiente.
+     * No se devuelve stock porque nunca fue descontado (se descuenta solo al aprobar).
+     */
+    @Transactional
+    public Sale rejectSale(String saleId, String rejectedBy, String motivo) {
+        Sale sale = getSaleById(saleId);
+        
+        if (!"PENDIENTE_APROBACION".equals(sale.getEstadoAprobacion())) {
+            throw new BadRequestException("La venta no está pendiente de aprobación");
+        }
+        
+        sale.setEstadoAprobacion("RECHAZADA");
+        sale.setAprobadoPor(rejectedBy);
+        sale.setFechaAprobacion(LocalDateTime.now());
+        sale.setMotivoRechazo(motivo);
+        
+        return saleRepository.save(sale);
+    }
+    
+    /**
+     * Actualiza una venta existente (solo ciertos campos).
+     * Solo se pueden actualizar: items, metodoPago, información del cliente y fecha de despacho.
+     * IMPORTANTE: Solo se permite actualizar ventas que NO hayan sido entregadas.
+     */
+    @Transactional
+    public Sale updateSale(String saleId, com.muebleria.dto.SaleUpdateRequest request, org.springframework.security.core.Authentication authentication) {
+        Sale sale = getSaleById(saleId);
+        
+        // Validar que la venta no haya sido entregada
+        if ("ENTREGADO".equals(sale.getEstadoEntrega())) {
+            throw new BadRequestException("No se puede editar una venta que ya fue entregada");
+        }
+        
+        // Validar que la venta no esté rechazada
+        if ("RECHAZADA".equals(sale.getEstadoAprobacion())) {
+            throw new BadRequestException("No se puede editar una venta rechazada");
+        }
+        
+        Local saleLocal = sale.getLocal();
+        
+        // Si hay cambios en los items, necesitamos ajustar el stock
+        boolean itemsChanged = !itemsEqual(sale.getItems(), request.getItems());
+        
+        if (itemsChanged) {
+            // Devolver el stock de los items antiguos (solo si la venta ya fue aprobada)
+            if ("APROBADA".equals(sale.getEstadoAprobacion())) {
+                for (SaleItem oldItem : sale.getItems()) {
+                    productService.increaseStock(oldItem.getProductId(), saleLocal, oldItem.getCantidad());
+                }
+            }
+            
+            // Construir nuevos items y calcular total
+            List<SaleItem> newItems = new ArrayList<>();
+            Double newTotal = 0.0;
+            
+            for (com.muebleria.dto.SaleItemRequest itemReq : request.getItems()) {
+                Product product = productService.getProductById(itemReq.getProductId());
+                
+                // Validar stock solo si la venta ya fue aprobada
+                if ("APROBADA".equals(sale.getEstadoAprobacion())) {
+                    if (!productService.hasStock(product.getId(), saleLocal, itemReq.getCantidad())) {
+                        throw new BadRequestException(
+                            "Stock insuficiente para " + product.getNombre() + 
+                            " en " + saleLocal + ". Stock disponible: " + 
+                            productService.getProductById(product.getId()).getStock()
+                        );
+                    }
+                }
+                
+                SaleItem saleItem = SaleItem.builder()
+                        .productId(product.getId())
+                        .productName(product.getNombre())
+                        .cantidad(itemReq.getCantidad())
+                        .precioUnitario(product.getPrecio())
+                        .subtotal(product.getPrecio() * itemReq.getCantidad())
+                        .build();
+                
+                newItems.add(saleItem);
+                newTotal += saleItem.getSubtotal();
+            }
+            
+            // Descontar el nuevo stock (solo si la venta ya fue aprobada)
+            if ("APROBADA".equals(sale.getEstadoAprobacion())) {
+                for (SaleItem newItem : newItems) {
+                    productService.decreaseStock(newItem.getProductId(), saleLocal, newItem.getCantidad());
+                }
+                
+                // Actualizar o recalcular comisión si es necesario
+                // Por simplicidad, eliminar la comisión antigua y crear una nueva
+                commissionService.deleteCommissionBySaleId(saleId);
+                
+                // Crear nueva comisión con la venta actualizada
+                sale.setItems(newItems);
+                sale.setTotalCLP(newTotal);
+                commissionService.createCommission(sale, sale.getVendedor());
+            }
+            
+            sale.setItems(newItems);
+            sale.setTotalCLP(newTotal);
+        }
+        
+        // Actualizar otros campos
+        sale.setMetodoPago(request.getMetodoPago());
+        sale.setClienteNombre(request.getClienteNombre());
+        sale.setClienteDireccion(request.getClienteDireccion());
+        sale.setClienteCorreo(request.getClienteCorreo());
+        sale.setClienteTelefono(request.getClienteTelefono());
+        sale.setFechaDespacho(request.getFechaDespacho());
+        sale.setNotas(request.getNotas());
+        
+        return saleRepository.save(sale);
+    }
+    
+    /**
+     * Compara si dos listas de items son iguales (mismo producto y cantidad)
+     */
+    private boolean itemsEqual(List<SaleItem> items1, List<com.muebleria.dto.SaleItemRequest> items2) {
+        if (items1.size() != items2.size()) {
+            return false;
+        }
+        
+        Map<String, Integer> map1 = items1.stream()
+            .collect(Collectors.toMap(SaleItem::getProductId, SaleItem::getCantidad));
+        
+        for (com.muebleria.dto.SaleItemRequest item : items2) {
+            if (!map1.containsKey(item.getProductId()) || 
+                !map1.get(item.getProductId()).equals(item.getCantidad())) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Obtiene lista de vendedores únicos (filtrados por locales autorizados)
+     */
+    public List<String> getUniqueVendedores(org.springframework.security.core.Authentication authentication) {
+        List<Sale> allSales = getAllSales(authentication);
+        return allSales.stream()
+                .map(Sale::getVendedor)
+                .filter(vendedor -> vendedor != null && !vendedor.isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+    
+    /**
+     * Obtiene estadísticas de ventas para todos los meses de un año
+     */
+    public Map<String, Map<String, Object>> getYearStats(int year, String localFilter, org.springframework.security.core.Authentication authentication) {
+        Map<String, Map<String, Object>> yearStats = new java.util.LinkedHashMap<>();
+        
+        for (int month = 1; month <= 12; month++) {
+            try {
+                Map<String, Object> monthStats = getSalesStatsByMonth(year, month, localFilter, authentication);
+                yearStats.put(String.valueOf(month), monthStats);
+            } catch (Exception e) {
+                // Si hay error en un mes, continuar con los demás
+                Map<String, Object> emptyStats = new java.util.HashMap<>();
+                emptyStats.put("totalVentas", 0.0);
+                emptyStats.put("cantidadVentas", 0);
+                emptyStats.put("promedioVenta", 0.0);
+                yearStats.put(String.valueOf(month), emptyStats);
+            }
+        }
+        
+        return yearStats;
+    }
+
+    /**
+     * Actualizar solo el método de pago de una venta
+     * Permite actualizar incluso ventas cerradas o entregadas
+     */
+    @Transactional
+    public Sale updatePaymentMethod(String saleId, String metodoPago) {
+        Sale sale = saleRepository.findById(saleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Venta no encontrada con ID: " + saleId));
+        
+        // Validar que el método de pago sea válido
+        if (metodoPago == null || metodoPago.isEmpty()) {
+            throw new BadRequestException("El método de pago no puede estar vacío");
+        }
+        
+        // Validar que sea uno de los métodos permitidos
+        List<String> metodosValidos = Arrays.asList("EFECTIVO", "TRANSFERENCIA", "DEBITO", "CREDITO");
+        if (!metodosValidos.contains(metodoPago)) {
+            throw new BadRequestException("Método de pago inválido: " + metodoPago + ". Debe ser uno de: " + metodosValidos);
+        }
+        
+        // Actualizar el método de pago
+        sale.setMetodoPago(metodoPago);
+        
+        return saleRepository.save(sale);
     }
 }

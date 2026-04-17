@@ -20,11 +20,14 @@ public class AuthResponse {
     
     private List<String> locales;
     
-    public AuthResponse(String token, String username, String email, String role, List<String> locales) {
+    private List<String> subRoles;
+    
+    public AuthResponse(String token, String username, String email, String role, List<String> locales, List<String> subRoles) {
         this.token = token;
         this.username = username;
         this.email = email;
         this.role = role;
         this.locales = locales;
+        this.subRoles = subRoles;
     }
 }

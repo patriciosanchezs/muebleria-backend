@@ -74,4 +74,18 @@ public class Sale {
     
     // Notas adicionales
     private String notas;
+    
+    // Sistema de aprobación de ventas
+    // Estado de aprobación: PENDIENTE_APROBACION, APROBADA, RECHAZADA
+    @Builder.Default
+    private String estadoAprobacion = "APROBADA"; // Por defecto APROBADA para admins
+    
+    // Usuario que aprobó la venta (admin o admin_local)
+    private String aprobadoPor;
+    
+    // Fecha de aprobación
+    private LocalDateTime fechaAprobacion;
+    
+    // Motivo de rechazo (opcional, solo si estadoAprobacion = RECHAZADA)
+    private String motivoRechazo;
 }

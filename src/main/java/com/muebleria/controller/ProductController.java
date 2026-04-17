@@ -22,46 +22,49 @@ public class ProductController {
     private final ProductService productService;
     
     /**
-     * Obtener todos los productos (ADMINISTRADOR, ADMIN_LOCAL y VENDEDOR)
+     * Obtener todos los productos filtrados por local
+     * @param local Local para filtrar productos (QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ) - REQUERIDO
      */
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'VENDEDOR')")
-    public ResponseEntity<List<ProductResponse>> getAllProducts(org.springframework.security.core.Authentication authentication) {
-        return ResponseEntity.ok(productService.getAllProducts(authentication));
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    public ResponseEntity<List<ProductResponse>> getAllProducts(@RequestParam String local) {
+        return ResponseEntity.ok(productService.getAllProductsByLocal(local));
     }
     
     /**
-     * Obtener producto por ID (ADMINISTRADOR, ADMIN_LOCAL y VENDEDOR)
+     * Obtener producto por ID
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'VENDEDOR')")
-    public ResponseEntity<ProductResponse> getProductById(@PathVariable String id, org.springframework.security.core.Authentication authentication) {
-        return ResponseEntity.ok(productService.getProductResponseById(id, authentication));
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    public ResponseEntity<ProductResponse> getProductById(@PathVariable String id) {
+        return ResponseEntity.ok(productService.getProductResponseById(id));
     }
     
     /**
-     * Obtener productos por categoría (ADMINISTRADOR, ADMIN_LOCAL y VENDEDOR)
+     * Obtener productos por categoría
+     * @param local Local para filtrar productos - REQUERIDO
      */
     @GetMapping("/categoria/{categoria}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'VENDEDOR')")
-    public ResponseEntity<List<ProductResponse>> getProductsByCategoria(@PathVariable String categoria, org.springframework.security.core.Authentication authentication) {
-        return ResponseEntity.ok(productService.getProductsByCategoria(categoria, authentication));
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    public ResponseEntity<List<ProductResponse>> getProductsByCategoria(@PathVariable String categoria, @RequestParam String local) {
+        return ResponseEntity.ok(productService.getProductsByCategoria(categoria, local));
     }
     
     /**
-     * Buscar productos por nombre (ADMINISTRADOR, ADMIN_LOCAL y VENDEDOR)
+     * Buscar productos por nombre
+     * @param local Local para filtrar productos - REQUERIDO
      */
     @GetMapping("/search")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'VENDEDOR')")
-    public ResponseEntity<List<ProductResponse>> searchProducts(@RequestParam String nombre, org.springframework.security.core.Authentication authentication) {
-        return ResponseEntity.ok(productService.searchProductsByNombre(nombre, authentication));
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    public ResponseEntity<List<ProductResponse>> searchProducts(@RequestParam String nombre, @RequestParam String local) {
+        return ResponseEntity.ok(productService.searchProductsByNombre(nombre, local));
     }
     
     /**
-     * Obtener stock de un producto en un local específico
+     * Obtener stock de un producto
      */
     @GetMapping("/{id}/stock/{local}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'VENDEDOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
     public ResponseEntity<Map<String, Integer>> getStockByLocal(@PathVariable String id, 
                                                                   @PathVariable String local) {
         Local localEnum = Local.valueOf(local);
@@ -72,32 +75,31 @@ public class ProductController {
     }
     
     /**
-     * Crear producto (ADMINISTRADOR o ADMIN_LOCAL)
+     * Crear producto (ADMINISTRADOR, ADMIN_LOCAL, ENCARGADO_LOCAL o BODEGUERO)
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
-    public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request, org.springframework.security.core.Authentication authentication) {
-        ProductResponse product = productService.createProduct(request, authentication);
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'BODEGUERO')")
+    public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request) {
+        ProductResponse product = productService.createProduct(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(product);
     }
     
     /**
-     * Actualizar producto (ADMINISTRADOR o ADMIN_LOCAL)
+     * Actualizar producto (ADMINISTRADOR, ADMIN_LOCAL, ENCARGADO_LOCAL o BODEGUERO)
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'BODEGUERO')")
     public ResponseEntity<ProductResponse> updateProduct(@PathVariable String id, 
-                                                  @Valid @RequestBody ProductRequest request,
-                                                  org.springframework.security.core.Authentication authentication) {
-        ProductResponse product = productService.updateProduct(id, request, authentication);
+                                                  @Valid @RequestBody ProductRequest request) {
+        ProductResponse product = productService.updateProduct(id, request);
         return ResponseEntity.ok(product);
     }
     
     /**
-     * Eliminar producto (ADMINISTRADOR o ADMIN_LOCAL)
+     * Eliminar producto (ADMINISTRADOR, ADMIN_LOCAL, ENCARGADO_LOCAL o BODEGUERO)
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'BODEGUERO')")
     public ResponseEntity<Void> deleteProduct(@PathVariable String id) {
         productService.deleteProduct(id);
         return ResponseEntity.noContent().build();

@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping("/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMINISTRADOR')")
 public class AdminController {
@@ -58,6 +58,12 @@ public class AdminController {
             return ResponseEntity.badRequest().body(validationError);
         }
         
+        // Validar sub-roles (solo para VENDEDOR y ENCARGADO_LOCAL)
+        String subRolError = validateSubRoles(role, request.getSubRoles());
+        if (subRolError != null) {
+            return ResponseEntity.badRequest().body(subRolError);
+        }
+        
         // Convertir locales de String a enum
         List<com.muebleria.model.Local> locales = null;
         if (request.getLocales() != null && !request.getLocales().isEmpty()) {
@@ -72,6 +78,39 @@ public class AdminController {
             }
         }
         
+        // Convertir sub-roles de String a enum
+        List<com.muebleria.model.SubRol> subRoles = new ArrayList<>();
+        if (request.getSubRoles() != null && !request.getSubRoles().isEmpty()) {
+            try {
+                subRoles = request.getSubRoles().stream()
+                        .map(com.muebleria.model.SubRol::valueOf)
+                        .collect(Collectors.toList());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity
+                        .badRequest()
+                        .body("Sub-rol inválido. Valores permitidos: VENDEDOR_LOCAL, ONLINE_CON_BUSINESS, ONLINE_SIN_BUSINESS");
+            }
+        }
+        
+        // Convertir locales con comisión de String a enum (solo para ADMIN_LOCAL)
+        List<com.muebleria.model.Local> localesConComision = new ArrayList<>();
+        if (request.getLocalesConComision() != null && !request.getLocalesConComision().isEmpty()) {
+            if (role != Role.ADMIN_LOCAL) {
+                return ResponseEntity
+                        .badRequest()
+                        .body("Solo los usuarios con rol ADMIN_LOCAL pueden tener locales con comisión");
+            }
+            try {
+                localesConComision = request.getLocalesConComision().stream()
+                        .map(com.muebleria.model.Local::valueOf)
+                        .collect(Collectors.toList());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity
+                        .badRequest()
+                        .body("Local inválido en localesConComision. Valores permitidos: QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ");
+            }
+        }
+        
         // Crear el nuevo usuario
         User newUser = User.builder()
                 .username(request.getUsername())
@@ -79,6 +118,8 @@ public class AdminController {
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(role)
                 .locales(locales != null ? locales : new ArrayList<>())
+                .subRoles(subRoles)
+                .localesConComision(localesConComision)
                 .createdBy(currentUser.getUsername())
                 .active(true)
                 .build();
@@ -92,6 +133,12 @@ public class AdminController {
                 .role(savedUser.getRole().name())
                 .locales(savedUser.getLocales() != null 
                         ? savedUser.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                        : new ArrayList<>())
+                .subRoles(savedUser.getSubRoles() != null
+                        ? savedUser.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
+                        : new ArrayList<>())
+                .localesConComision(savedUser.getLocalesConComision() != null
+                        ? savedUser.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
                         : new ArrayList<>())
                 .active(savedUser.isActive())
                 .createdAt(savedUser.getCreatedAt())
@@ -116,12 +163,31 @@ public class AdminController {
             }
         }
         
-        if (role == Role.ADMIN_LOCAL || role == Role.VENDEDOR) {
+        if (role == Role.ENCARGADO_LOCAL) {
+            if (locales == null || locales.size() != 1) {
+                return "El ENCARGADO_LOCAL debe tener exactamente 1 local asignado";
+            }
+        }
+        
+        if (role == Role.ADMIN_LOCAL || role == Role.VENDEDOR || role == Role.BODEGUERO) {
             if (locales == null || locales.isEmpty()) {
                 return "El " + role.name() + " debe tener al menos 1 local asignado";
             }
         }
         
+        return null;
+    }
+    
+    /**
+     * Validar que los sub-roles sean correctos según el rol.
+     */
+    private String validateSubRoles(Role role, List<String> subRoles) {
+        // Sub-roles solo permitidos para VENDEDOR y ENCARGADO_LOCAL
+        if (subRoles != null && !subRoles.isEmpty()) {
+            if (role != Role.VENDEDOR && role != Role.ENCARGADO_LOCAL) {
+                return "Los sub-roles solo están permitidos para VENDEDOR y ENCARGADO_LOCAL";
+            }
+        }
         return null;
     }
     
@@ -138,6 +204,12 @@ public class AdminController {
                         .role(user.getRole().name())
                         .locales(user.getLocales() != null 
                                 ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                                : new ArrayList<>())
+                        .subRoles(user.getSubRoles() != null
+                                ? user.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
+                                : new ArrayList<>())
+                        .localesConComision(user.getLocalesConComision() != null
+                                ? user.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
                                 : new ArrayList<>())
                         .active(user.isActive())
                         .createdAt(user.getCreatedAt())
@@ -166,6 +238,12 @@ public class AdminController {
                 .role(updatedUser.getRole().name())
                 .locales(updatedUser.getLocales() != null 
                         ? updatedUser.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                        : new ArrayList<>())
+                .subRoles(updatedUser.getSubRoles() != null
+                        ? updatedUser.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
+                        : new ArrayList<>())
+                .localesConComision(updatedUser.getLocalesConComision() != null
+                        ? updatedUser.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
                         : new ArrayList<>())
                 .active(updatedUser.isActive())
                 .createdAt(updatedUser.getCreatedAt())
@@ -233,6 +311,12 @@ public class AdminController {
             if (validationError != null) {
                 return ResponseEntity.badRequest().body(validationError);
             }
+            
+            // Validar sub-roles si se cambia el rol
+            String subRolError = validateSubRoles(newRole, request.getSubRoles());
+            if (subRolError != null) {
+                return ResponseEntity.badRequest().body(subRolError);
+            }
         }
         
         // Actualizar locales si están presentes
@@ -249,6 +333,41 @@ public class AdminController {
             }
         }
         
+        // Actualizar sub-roles si están presentes
+        if (request.getSubRoles() != null) {
+            try {
+                List<com.muebleria.model.SubRol> subRoles = request.getSubRoles().stream()
+                        .map(com.muebleria.model.SubRol::valueOf)
+                        .collect(Collectors.toList());
+                user.setSubRoles(subRoles);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity
+                        .badRequest()
+                        .body("Sub-rol inválido. Valores permitidos: VENDEDOR_LOCAL, ONLINE_CON_BUSINESS, ONLINE_SIN_BUSINESS");
+            }
+        }
+        
+        // Actualizar locales con comisión si están presentes (solo para ADMIN_LOCAL)
+        if (request.getLocalesConComision() != null) {
+            // Validar que el usuario sea ADMIN_LOCAL
+            if (user.getRole() != Role.ADMIN_LOCAL) {
+                return ResponseEntity
+                        .badRequest()
+                        .body("Solo los usuarios con rol ADMIN_LOCAL pueden tener locales con comisión");
+            }
+            
+            try {
+                List<com.muebleria.model.Local> localesConComision = request.getLocalesConComision().stream()
+                        .map(com.muebleria.model.Local::valueOf)
+                        .collect(Collectors.toList());
+                user.setLocalesConComision(localesConComision);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity
+                        .badRequest()
+                        .body("Local inválido en localesConComision. Valores permitidos: QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ");
+            }
+        }
+        
         User updatedUser = userRepository.save(user);
         
         UserResponse response = UserResponse.builder()
@@ -259,11 +378,79 @@ public class AdminController {
                 .locales(updatedUser.getLocales() != null 
                         ? updatedUser.getLocales().stream().map(Enum::name).collect(Collectors.toList())
                         : new ArrayList<>())
+                .subRoles(updatedUser.getSubRoles() != null
+                        ? updatedUser.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
+                        : new ArrayList<>())
+                .localesConComision(updatedUser.getLocalesConComision() != null
+                        ? updatedUser.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
+                        : new ArrayList<>())
                 .active(updatedUser.isActive())
                 .createdAt(updatedUser.getCreatedAt())
                 .createdBy(updatedUser.getCreatedBy())
                 .build();
         
         return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Obtener lista de vendedores para asignar a una venta.
+     * Filtra por local si se proporciona el parámetro.
+     * Accesible para ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL.
+     */
+    @GetMapping("/vendedores")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
+    public ResponseEntity<List<UserResponse>> getVendedores(
+            @RequestParam(required = false) String local) {
+        
+        List<User> allUsers = userRepository.findAll();
+        
+        // Filtrar solo VENDEDOR y ENCARGADO_LOCAL
+        List<User> vendedores = allUsers.stream()
+                .filter(u -> u.getRole() == Role.VENDEDOR || u.getRole() == Role.ENCARGADO_LOCAL)
+                .filter(u -> u.isActive()) // Solo usuarios activos
+                .collect(Collectors.toList());
+        
+        // Si se especifica un local, filtrar por vendedores que tengan ese local asignado
+        if (local != null && !local.isEmpty()) {
+            try {
+                com.muebleria.model.Local localEnum = com.muebleria.model.Local.valueOf(local);
+                vendedores = vendedores.stream()
+                        .filter(u -> u.getLocales() != null && u.getLocales().contains(localEnum))
+                        .collect(Collectors.toList());
+            } catch (IllegalArgumentException e) {
+                // Si el local es inválido, devolver lista vacía
+                return ResponseEntity.ok(new ArrayList<>());
+            }
+        }
+        
+        // Convertir a UserResponse
+        List<UserResponse> response = vendedores.stream()
+                .map(user -> UserResponse.builder()
+                        .id(user.getId())
+                        .username(user.getUsername())
+                        .email(user.getEmail())
+                        .role(user.getRole().name())
+                        .locales(user.getLocales() != null 
+                                ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                                : new ArrayList<>())
+                        .subRoles(user.getSubRoles() != null
+                                ? user.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
+                                : new ArrayList<>())
+                        .active(user.isActive())
+                        .build())
+                .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Endpoint de migración para duplicar productos existentes por local.
+     * Este endpoint toma productos con stockPorLocal y crea productos separados para cada local.
+     * NOTA: Solo ejecutar UNA VEZ durante la migración.
+     */
+    @PostMapping("/migrate-products")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<?> migrateProductsByLocal() {
+        return ResponseEntity.ok("Migration endpoint disabled. Use manual migration script.");
     }
 }

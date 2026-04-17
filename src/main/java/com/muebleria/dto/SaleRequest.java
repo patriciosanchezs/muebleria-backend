@@ -69,5 +69,9 @@ public class SaleRequest {
     )
     private String canalVenta;
     
+    // Vendedor asignado (opcional) - solo para roles administrativos
+    // Si se asigna, este vendedor recibirá la comisión
+    private String vendedorAsignado;
+    
     private String notas;
 }
