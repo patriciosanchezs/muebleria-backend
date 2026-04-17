@@ -65,4 +65,18 @@ public class AuthHelper {
         User user = getAuthenticatedUser(authentication);
         return user != null && user.getRole() == Role.ADMIN_LOCAL;
     }
+    
+    /**
+     * Verifica si el usuario es administrador (alias de isGlobalAdmin)
+     */
+    public boolean isAdmin(Authentication authentication) {
+        return isGlobalAdmin(authentication);
+    }
+    
+    /**
+     * Obtiene los locales del usuario (alias de getAuthorizedLocales)
+     */
+    public List<Local> getUserLocales(Authentication authentication) {
+        return getAuthorizedLocales(authentication);
+    }
 }

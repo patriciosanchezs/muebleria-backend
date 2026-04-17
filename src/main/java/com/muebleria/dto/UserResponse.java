@@ -17,6 +17,8 @@ public class UserResponse {
     private String email;
     private String role;
     private List<String> locales;
+    private List<String> subRoles;
+    private List<String> localesConComision; // IDs de locales con comisión para ADMIN_LOCAL
     private boolean active;
     private LocalDateTime createdAt;
     private String createdBy;

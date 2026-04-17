@@ -12,4 +12,5 @@ public interface CommissionRepository extends MongoRepository<Commission, String
     List<Commission> findByVendedorUsername(String vendedorUsername);
     List<Commission> findByVendedorUsernameAndFechaVentaBetween(String vendedorUsername, LocalDateTime start, LocalDateTime end);
     List<Commission> findByFechaVentaBetween(LocalDateTime start, LocalDateTime end);
+    void deleteBySaleId(String saleId);
 }

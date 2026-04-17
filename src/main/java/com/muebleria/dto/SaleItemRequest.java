@@ -14,4 +14,8 @@ public class SaleItemRequest {
     @NotNull(message = "La cantidad es requerida")
     @Min(value = 1, message = "La cantidad debe ser al menos 1")
     private Integer cantidad;
+    
+    // Descuento opcional por unidad (monto fijo en CLP)
+    @Min(value = 0, message = "El descuento no puede ser negativo")
+    private Double descuento;
 }

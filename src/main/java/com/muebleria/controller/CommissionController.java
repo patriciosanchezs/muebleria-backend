@@ -22,29 +22,29 @@ public class CommissionController {
     private final CommissionService commissionService;
     
     /**
-     * Obtener comisiones del vendedor autenticado
+     * Obtener comisiones del vendedor/admin_local autenticado
      */
     @GetMapping("/my-commissions")
-    @PreAuthorize("hasRole('VENDEDOR')")
+    @PreAuthorize("hasAnyRole('VENDEDOR', 'ENCARGADO_LOCAL', 'ADMIN_LOCAL')")
     public ResponseEntity<List<Commission>> getMyCommissions(Authentication auth) {
-        String username = auth.getName();
-        List<Commission> commissions = commissionService.getCommissionsByVendedor(username);
+        String identifier = auth.getName(); // Puede ser username o ID
+        List<Commission> commissions = commissionService.getCommissionsByVendedor(identifier);
         return ResponseEntity.ok(commissions);
     }
     
     /**
-     * Obtener comisiones del vendedor autenticado en un periodo
+     * Obtener comisiones del vendedor/admin_local autenticado en un periodo
      */
     @GetMapping("/my-commissions/period")
-    @PreAuthorize("hasRole('VENDEDOR')")
+    @PreAuthorize("hasAnyRole('VENDEDOR', 'ENCARGADO_LOCAL', 'ADMIN_LOCAL')")
     public ResponseEntity<Map<String, Object>> getMyCommissionsByPeriod(
             Authentication auth,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end) {
         
-        String username = auth.getName();
-        List<Commission> commissions = commissionService.getCommissionsByVendedorAndPeriod(username, start, end);
-        double total = commissionService.getTotalCommissionsByVendedorAndPeriod(username, start, end);
+        String identifier = auth.getName(); // Puede ser username o ID
+        List<Commission> commissions = commissionService.getCommissionsByVendedorAndPeriod(identifier, start, end);
+        double total = commissionService.getTotalCommissionsByVendedorAndPeriod(identifier, start, end);
         
         Map<String, Object> response = new HashMap<>();
         response.put("commissions", commissions);
@@ -57,7 +57,7 @@ public class CommissionController {
      * Obtener comisiones de un vendedor específico (admin y admin_local)
      */
     @GetMapping("/user/{username}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
     public ResponseEntity<List<Commission>> getCommissionsByUser(@PathVariable String username) {
         List<Commission> commissions = commissionService.getCommissionsByVendedor(username);
         return ResponseEntity.ok(commissions);
@@ -67,7 +67,7 @@ public class CommissionController {
      * Obtener comisiones de un vendedor en un periodo (admin y admin_local)
      */
     @GetMapping("/user/{username}/period")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
     public ResponseEntity<Map<String, Object>> getCommissionsByUserAndPeriod(
             @PathVariable String username,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
@@ -87,7 +87,7 @@ public class CommissionController {
      * Obtener todas las comisiones en un periodo (admin y admin_local)
      */
     @GetMapping("/period")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
     public ResponseEntity<Map<String, Object>> getCommissionsByPeriod(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
@@ -103,5 +103,23 @@ public class CommissionController {
         response.put("total", total);
         
         return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Obtener comisiones agrupadas por usuario para los locales asignados
+     * (ADMIN y ADMIN_LOCAL)
+     */
+    @GetMapping("/by-local")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
+    public ResponseEntity<Map<String, Object>> getCommissionsByLocal(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
+            @RequestParam(required = false) String local,
+            @RequestParam(required = false) String username,
+            Authentication authentication) {
+        
+        return ResponseEntity.ok(commissionService.getCommissionsByLocalGrouped(
+            start, end, local, username, authentication
+        ));
     }
 }
