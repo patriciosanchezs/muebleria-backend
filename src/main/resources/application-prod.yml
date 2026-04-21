@@ -3,11 +3,28 @@ spring:
   application:
     name: furniture-store
   
+
   data:
     mongodb:
-      uri: ${MONGODB_URL}
-      auto-index-creation: true
-  
+      uri: ${MONGODB_URI}
+      auto-index-creation: false
+
+# Configuración de retry y timeout
+  management:
+    health:
+      mongo:
+        enabled: true
+    endpoint:
+      health:
+        show-details: always
+
+  # Logging mejorado para MongoDB
+  logging:
+    level:
+      org.mongodb.driver: INFO
+      org.mongodb.driver.cluster: WARN
+      org.mongodb.driver.connection: WARN
+
   jackson:
     default-property-inclusion: non_null
     serialization:
