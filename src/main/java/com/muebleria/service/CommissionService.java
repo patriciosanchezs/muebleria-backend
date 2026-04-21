@@ -19,17 +19,13 @@ public class CommissionService {
     private final AuthHelper authHelper;
     private final UserRepository userRepository;
     
-    // Comisiones base por canal de venta
-    private static final double COMISION_EN_LOCAL = 2500.0;
-    private static final double COMISION_ONLINE_BUSINESS = 5000.0;
-    private static final double COMISION_ONLINE_SIN_BUSINESS = 10000.0;
-    
-    // Límite de comisión para productos menores a este precio
-    private static final double PRECIO_LIMITE = 140000.0;
-    private static final double COMISION_MAXIMA_LIMITE = 5000.0;
+    // Comisiones fijas por canal de venta (sub-rol)
+    private static final double COMISION_EN_LOCAL = 2500.0;           // VENDEDOR_LOCAL
+    private static final double COMISION_ONLINE_BUSINESS = 5000.0;    // ONLINE_CON_BUSINESS
+    private static final double COMISION_ONLINE_SIN_BUSINESS = 10000.0; // ONLINE_SIN_BUSINESS
     
     /**
-     * Calcula la comisión para un producto según el canal de venta y precio
+     * Calcula la comisión para un producto según el canal de venta
      */
     public double calculateCommissionForProduct(double precioProducto, CanalVenta canalVenta) {
         double comisionBase;
@@ -37,23 +33,19 @@ public class CommissionService {
         // Determinar comisión base según canal
         switch (canalVenta) {
             case EN_LOCAL:
-                comisionBase = COMISION_EN_LOCAL;
+                comisionBase = COMISION_EN_LOCAL; // 2,500 CLP
                 break;
             case ONLINE_BUSINESS:
-                comisionBase = COMISION_ONLINE_BUSINESS;
+                comisionBase = COMISION_ONLINE_BUSINESS; // 5,000 CLP
                 break;
             case ONLINE_SIN_BUSINESS:
-                comisionBase = COMISION_ONLINE_SIN_BUSINESS;
+                comisionBase = COMISION_ONLINE_SIN_BUSINESS; // 10,000 CLP
                 break;
             default:
                 comisionBase = COMISION_EN_LOCAL;
         }
         
-        // Aplicar límite si el precio del producto es menor a 140,000
-        if (precioProducto < PRECIO_LIMITE) {
-            return Math.min(comisionBase, COMISION_MAXIMA_LIMITE);
-        }
-        
+        // Retornar comisión base sin limitaciones
         return comisionBase;
     }
     
@@ -123,7 +115,7 @@ public class CommissionService {
             double precioConDescuento = saleItem.getPrecioConDescuento();
             
             // Comisión fija según precio del producto CON descuento
-            double comisionPorProducto = precioConDescuento < PRECIO_LIMITE ? 5000.0 : 10000.0;
+            double comisionPorProducto = precioConDescuento < 140000.0 ? 5000.0 : 10000.0;
             double comisionItem = comisionPorProducto * saleItem.getCantidad();
             
             CommissionItem commissionItem = CommissionItem.builder()

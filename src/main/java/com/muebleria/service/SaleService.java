@@ -131,12 +131,11 @@ public class SaleService {
                 .notas(request.getNotas())
                 .fechaVenta(LocalDateTime.now());
         
-        // Determinar estado de aprobación según el rol del vendedor final (dueño de la venta)
-        User vendedorUser = userRepository.findByUsername(vendedorFinal)
-                .orElseThrow(() -> new ResourceNotFoundException("Vendedor no encontrado"));
-        
-        if ("VENDEDOR".equals(vendedorUser.getRole().name())) {
-            // Vendedores crean ventas en estado PENDIENTE_APROBACION
+        // Determinar estado de aprobación según el rol de QUIEN REGISTRA la venta (no del vendedor asignado)
+        // Si quien registra es ADMIN, ADMIN_LOCAL o ENCARGADO_LOCAL → APROBADA automáticamente
+        // Si quien registra es VENDEDOR o VENDEDOR_SIN_COMISION → PENDIENTE_APROBACION
+        if ("VENDEDOR".equals(currentUser.getRole().name()) || "VENDEDOR_SIN_COMISION".equals(currentUser.getRole().name())) {
+            // Vendedores (con o sin comisión) crean ventas en estado PENDIENTE_APROBACION
             saleBuilder.estadoAprobacion("PENDIENTE_APROBACION");
         } else {
             // Admins, Admin Local y Encargado Local crean ventas ya APROBADAS
@@ -191,13 +190,15 @@ public class SaleService {
                 boolean shouldCreateCommission = false;
                 
                 if (request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()) {
-                    // Caso 1: Hay vendedor asignado - siempre crear comisión para ese vendedor
-                    if (comissionUser != null && ("VENDEDOR".equals(comissionUser.getRole().name()) || "ENCARGADO_LOCAL".equals(comissionUser.getRole().name()))) {
+                    // Caso 1: Hay vendedor asignado - crear comisión solo si es VENDEDOR o ENCARGADO_LOCAL (NO para VENDEDOR_SIN_COMISION)
+                    if (comissionUser != null && 
+                        ("VENDEDOR".equals(comissionUser.getRole().name()) || "ENCARGADO_LOCAL".equals(comissionUser.getRole().name()))) {
                         shouldCreateCommission = true;
                     }
                 } else {
-                    // Caso 2: No hay vendedor asignado - crear comisión solo si quien registra es VENDEDOR o ENCARGADO_LOCAL
-                    if (currentUser != null && ("VENDEDOR".equals(currentUser.getRole().name()) || "ENCARGADO_LOCAL".equals(currentUser.getRole().name()))) {
+                    // Caso 2: No hay vendedor asignado - crear comisión solo si quien registra es VENDEDOR o ENCARGADO_LOCAL (NO para VENDEDOR_SIN_COMISION)
+                    if (currentUser != null && 
+                        ("VENDEDOR".equals(currentUser.getRole().name()) || "ENCARGADO_LOCAL".equals(currentUser.getRole().name()))) {
                         shouldCreateCommission = true;
                     }
                 }

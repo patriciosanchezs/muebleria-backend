@@ -58,7 +58,7 @@ public class AdminController {
             return ResponseEntity.badRequest().body(validationError);
         }
         
-        // Validar sub-roles (solo para VENDEDOR y ENCARGADO_LOCAL)
+        // Validar sub-roles (solo para VENDEDOR, VENDEDOR_SIN_COMISION y ENCARGADO_LOCAL)
         String subRolError = validateSubRoles(role, request.getSubRoles());
         if (subRolError != null) {
             return ResponseEntity.badRequest().body(subRolError);
@@ -169,7 +169,7 @@ public class AdminController {
             }
         }
         
-        if (role == Role.ADMIN_LOCAL || role == Role.VENDEDOR || role == Role.BODEGUERO) {
+        if (role == Role.ADMIN_LOCAL || role == Role.VENDEDOR || role == Role.VENDEDOR_SIN_COMISION || role == Role.BODEGUERO) {
             if (locales == null || locales.isEmpty()) {
                 return "El " + role.name() + " debe tener al menos 1 local asignado";
             }
@@ -182,10 +182,10 @@ public class AdminController {
      * Validar que los sub-roles sean correctos según el rol.
      */
     private String validateSubRoles(Role role, List<String> subRoles) {
-        // Sub-roles solo permitidos para VENDEDOR y ENCARGADO_LOCAL
+        // Sub-roles solo permitidos para VENDEDOR, VENDEDOR_SIN_COMISION y ENCARGADO_LOCAL
         if (subRoles != null && !subRoles.isEmpty()) {
-            if (role != Role.VENDEDOR && role != Role.ENCARGADO_LOCAL) {
-                return "Los sub-roles solo están permitidos para VENDEDOR y ENCARGADO_LOCAL";
+            if (role != Role.VENDEDOR && role != Role.VENDEDOR_SIN_COMISION && role != Role.ENCARGADO_LOCAL) {
+                return "Los sub-roles solo están permitidos para VENDEDOR, VENDEDOR_SIN_COMISION y ENCARGADO_LOCAL";
             }
         }
         return null;
@@ -348,7 +348,7 @@ public class AdminController {
         }
         
         // Actualizar locales con comisión si están presentes (solo para ADMIN_LOCAL)
-        if (request.getLocalesConComision() != null) {
+        if (request.getLocalesConComision() != null && !request.getLocalesConComision().isEmpty()) {
             // Validar que el usuario sea ADMIN_LOCAL
             if (user.getRole() != Role.ADMIN_LOCAL) {
                 return ResponseEntity
@@ -404,9 +404,9 @@ public class AdminController {
         
         List<User> allUsers = userRepository.findAll();
         
-        // Filtrar solo VENDEDOR y ENCARGADO_LOCAL
+        // Filtrar solo VENDEDOR, VENDEDOR_SIN_COMISION y ENCARGADO_LOCAL
         List<User> vendedores = allUsers.stream()
-                .filter(u -> u.getRole() == Role.VENDEDOR || u.getRole() == Role.ENCARGADO_LOCAL)
+                .filter(u -> u.getRole() == Role.VENDEDOR || u.getRole() == Role.VENDEDOR_SIN_COMISION || u.getRole() == Role.ENCARGADO_LOCAL)
                 .filter(u -> u.isActive()) // Solo usuarios activos
                 .collect(Collectors.toList());
         

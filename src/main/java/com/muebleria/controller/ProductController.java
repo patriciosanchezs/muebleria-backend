@@ -26,7 +26,7 @@ public class ProductController {
      * @param local Local para filtrar productos (QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ) - REQUERIDO
      */
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION', 'BODEGUERO')")
     public ResponseEntity<List<ProductResponse>> getAllProducts(@RequestParam String local) {
         return ResponseEntity.ok(productService.getAllProductsByLocal(local));
     }
@@ -35,7 +35,7 @@ public class ProductController {
      * Obtener producto por ID
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION', 'BODEGUERO')")
     public ResponseEntity<ProductResponse> getProductById(@PathVariable String id) {
         return ResponseEntity.ok(productService.getProductResponseById(id));
     }
@@ -45,7 +45,7 @@ public class ProductController {
      * @param local Local para filtrar productos - REQUERIDO
      */
     @GetMapping("/categoria/{categoria}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION', 'BODEGUERO')")
     public ResponseEntity<List<ProductResponse>> getProductsByCategoria(@PathVariable String categoria, @RequestParam String local) {
         return ResponseEntity.ok(productService.getProductsByCategoria(categoria, local));
     }
@@ -55,7 +55,7 @@ public class ProductController {
      * @param local Local para filtrar productos - REQUERIDO
      */
     @GetMapping("/search")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION', 'BODEGUERO')")
     public ResponseEntity<List<ProductResponse>> searchProducts(@RequestParam String nombre, @RequestParam String local) {
         return ResponseEntity.ok(productService.searchProductsByNombre(nombre, local));
     }
@@ -64,8 +64,8 @@ public class ProductController {
      * Obtener stock de un producto
      */
     @GetMapping("/{id}/stock/{local}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'BODEGUERO')")
-    public ResponseEntity<Map<String, Integer>> getStockByLocal(@PathVariable String id, 
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION', 'BODEGUERO')")
+    public ResponseEntity<Map<String, Integer>> getStockByLocal(@PathVariable String id,
                                                                   @PathVariable String local) {
         Local localEnum = Local.valueOf(local);
         Integer stock = productService.getStockByLocal(id, localEnum);
