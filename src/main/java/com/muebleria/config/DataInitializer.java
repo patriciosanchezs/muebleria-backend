@@ -38,7 +38,7 @@ public class DataInitializer implements CommandLineRunner {
                     .email("admin@muebleria.com")
                     .password(passwordEncoder.encode("admin123"))
                     .role(Role.ADMINISTRADOR)
-                    .locales(new ArrayList<>()) // Admin no tiene locales específicos (acceso total)
+                    .localIds(new ArrayList<>()) // Admin no tiene locales específicos (acceso total)
                     .active(true)
                     .createdBy("SYSTEM")
                     .build();

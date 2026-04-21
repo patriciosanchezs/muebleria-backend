@@ -4,7 +4,6 @@ import com.muebleria.dto.ProductRequest;
 import com.muebleria.dto.ProductResponse;
 import com.muebleria.exception.BadRequestException;
 import com.muebleria.exception.ResourceNotFoundException;
-import com.muebleria.model.Local;
 import com.muebleria.model.Product;
 import com.muebleria.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -18,25 +17,22 @@ import java.util.stream.Collectors;
 public class ProductService {
     
     private final ProductRepository productRepository;
+    private final LocalService localService;
     
     /**
      * Obtiene productos filtrados por local.
-     * @param local Local para filtrar productos (requerido)
+     * @param local ID del Local para filtrar productos (requerido)
      */
     public List<ProductResponse> getAllProductsByLocal(String local) {
         if (local == null || local.isEmpty()) {
             throw new BadRequestException("El parámetro 'local' es requerido");
         }
         
-        Local localEnum;
-        try {
-            localEnum = Local.valueOf(local);
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Local inválido: " + local);
-        }
+        // Validar que el local existe y está activo
+        localService.validateActiveLocalId(local);
         
         return productRepository.findAll().stream()
-                .filter(p -> localEnum.equals(p.getLocal()))
+                .filter(p -> local.equals(p.getLocalId()))
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
     }
@@ -55,15 +51,11 @@ public class ProductService {
             throw new BadRequestException("El parámetro 'local' es requerido");
         }
         
-        Local localEnum;
-        try {
-            localEnum = Local.valueOf(local);
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Local inválido: " + local);
-        }
+        // Validar que el local existe y está activo
+        localService.validateActiveLocalId(local);
         
         return productRepository.findByCategoria(categoria).stream()
-                .filter(p -> localEnum.equals(p.getLocal()))
+                .filter(p -> local.equals(p.getLocalId()))
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
     }
@@ -73,34 +65,25 @@ public class ProductService {
             throw new BadRequestException("El parámetro 'local' es requerido");
         }
         
-        Local localEnum;
-        try {
-            localEnum = Local.valueOf(local);
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Local inválido: " + local);
-        }
+        // Validar que el local existe y está activo
+        localService.validateActiveLocalId(local);
         
         return productRepository.findByNombreContainingIgnoreCase(nombre).stream()
-                .filter(p -> localEnum.equals(p.getLocal()))
+                .filter(p -> local.equals(p.getLocalId()))
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
     }
     
     public ProductResponse createProduct(ProductRequest request) {
         // Validar local
-        Local local;
-        try {
-            local = Local.valueOf(request.getLocal());
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Local inválido: " + request.getLocal());
-        }
+        localService.validateActiveLocalId(request.getLocal());
         
         Product product = Product.builder()
                 .nombre(request.getNombre())
                 .descripcion(request.getDescripcion())
                 .precio(request.getPrecio())
                 .categoria(request.getCategoria())
-                .local(local)
+                .localId(request.getLocal())
                 .stock(request.getStock())
                 .imageUrl(request.getImageUrl())
                 .fechaCreacion(LocalDateTime.now())
@@ -115,12 +98,7 @@ public class ProductService {
         Product existingProduct = getProductById(id);
         
         // Validar local
-        Local local;
-        try {
-            local = Local.valueOf(request.getLocal());
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Local inválido: " + request.getLocal());
-        }
+        localService.validateActiveLocalId(request.getLocal());
         
         Product updatedProduct = Product.builder()
                 .id(existingProduct.getId())
@@ -128,7 +106,7 @@ public class ProductService {
                 .descripcion(request.getDescripcion())
                 .precio(request.getPrecio())
                 .categoria(request.getCategoria())
-                .local(local)
+                .localId(request.getLocal())
                 .stock(request.getStock())
                 .imageUrl(request.getImageUrl())
                 .fechaCreacion(existingProduct.getFechaCreacion())
@@ -148,14 +126,14 @@ public class ProductService {
     /**
      * Obtiene el stock de un producto (ya es específico por local)
      */
-    public Integer getStockByLocal(String productId, Local local) {
+    public Integer getStockByLocal(String productId, String localId) {
         Product product = getProductById(productId);
         
         // Validar que el producto pertenece al local solicitado
-        if (!local.equals(product.getLocal())) {
+        if (!localId.equals(product.getLocalId())) {
             throw new BadRequestException(
-                String.format("El producto '%s' no pertenece al local %s", 
-                    product.getNombre(), local.name())
+                String.format("El producto '%s' no pertenece al local con ID %s", 
+                    product.getNombre(), localId)
             );
         }
         
@@ -165,22 +143,22 @@ public class ProductService {
     /**
      * Descuenta stock de un producto. Útil para ventas.
      */
-    public void decreaseStock(String productId, Local local, Integer cantidad) {
+    public void decreaseStock(String productId, String localId, Integer cantidad) {
         Product product = getProductById(productId);
         
         // Validar que el producto pertenece al local
-        if (!local.equals(product.getLocal())) {
+        if (!localId.equals(product.getLocalId())) {
             throw new BadRequestException(
-                String.format("El producto '%s' no pertenece al local %s", 
-                    product.getNombre(), local.name())
+                String.format("El producto '%s' no pertenece al local con ID %s", 
+                    product.getNombre(), localId)
             );
         }
         
         Integer stockActual = product.getStock();
         if (stockActual < cantidad) {
             throw new BadRequestException(
-                String.format("Stock insuficiente para el producto '%s' en %s. Disponible: %d, Requerido: %d",
-                    product.getNombre(), local.name(), stockActual, cantidad)
+                String.format("Stock insuficiente para el producto '%s' en local %s. Disponible: %d, Requerido: %d",
+                    product.getNombre(), localId, stockActual, cantidad)
             );
         }
         
@@ -199,14 +177,14 @@ public class ProductService {
      * Incrementa el stock de un producto.
      * Se usa al rechazar ventas pendientes para devolver el stock.
      */
-    public void increaseStock(String productId, Local local, Integer cantidad) {
+    public void increaseStock(String productId, String localId, Integer cantidad) {
         Product product = getProductById(productId);
         
         // Validar que el producto pertenece al local
-        if (!local.equals(product.getLocal())) {
+        if (!localId.equals(product.getLocalId())) {
             throw new BadRequestException(
-                String.format("El producto '%s' no pertenece al local %s", 
-                    product.getNombre(), local.name())
+                String.format("El producto '%s' no pertenece al local con ID %s", 
+                    product.getNombre(), localId)
             );
         }
         
@@ -224,11 +202,11 @@ public class ProductService {
     /**
      * Valida si hay stock disponible para un producto.
      */
-    public boolean hasStock(String productId, Local local, Integer cantidad) {
+    public boolean hasStock(String productId, String localId, Integer cantidad) {
         Product product = getProductById(productId);
         
         // Validar que el producto pertenece al local
-        if (!local.equals(product.getLocal())) {
+        if (!localId.equals(product.getLocalId())) {
             return false;
         }
         
@@ -243,7 +221,7 @@ public class ProductService {
                 .descripcion(product.getDescripcion())
                 .precio(product.getPrecio())
                 .categoria(product.getCategoria())
-                .local(product.getLocal() != null ? product.getLocal().name() : null)
+                .local(product.getLocalId())
                 .stock(product.getStock())
                 .imageUrl(product.getImageUrl())
                 .fechaCreacion(product.getFechaCreacion())

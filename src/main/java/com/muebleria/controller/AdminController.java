@@ -27,6 +27,7 @@ public class AdminController {
     
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.muebleria.service.LocalService localService;
     
     /**
      * Crear un nuevo usuario (solo ADMINISTRADOR).
@@ -64,17 +65,12 @@ public class AdminController {
             return ResponseEntity.badRequest().body(subRolError);
         }
         
-        // Convertir locales de String a enum
-        List<com.muebleria.model.Local> locales = null;
+        // Validar que los IDs de locales existan en la base de datos
         if (request.getLocales() != null && !request.getLocales().isEmpty()) {
             try {
-                locales = request.getLocales().stream()
-                        .map(com.muebleria.model.Local::valueOf)
-                        .collect(Collectors.toList());
-            } catch (IllegalArgumentException e) {
-                return ResponseEntity
-                        .badRequest()
-                        .body("Local inválido. Valores permitidos: QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ");
+                localService.validateLocalIds(request.getLocales());
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(e.getMessage());
             }
         }
         
@@ -92,8 +88,7 @@ public class AdminController {
             }
         }
         
-        // Convertir locales con comisión de String a enum (solo para ADMIN_LOCAL)
-        List<com.muebleria.model.Local> localesConComision = new ArrayList<>();
+        // Validar locales con comisión (solo para ADMIN_LOCAL)
         if (request.getLocalesConComision() != null && !request.getLocalesConComision().isEmpty()) {
             if (role != Role.ADMIN_LOCAL) {
                 return ResponseEntity
@@ -101,13 +96,9 @@ public class AdminController {
                         .body("Solo los usuarios con rol ADMIN_LOCAL pueden tener locales con comisión");
             }
             try {
-                localesConComision = request.getLocalesConComision().stream()
-                        .map(com.muebleria.model.Local::valueOf)
-                        .collect(Collectors.toList());
-            } catch (IllegalArgumentException e) {
-                return ResponseEntity
-                        .badRequest()
-                        .body("Local inválido en localesConComision. Valores permitidos: QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ");
+                localService.validateLocalIds(request.getLocalesConComision());
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(e.getMessage());
             }
         }
         
@@ -117,9 +108,9 @@ public class AdminController {
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(role)
-                .locales(locales != null ? locales : new ArrayList<>())
+                .localIds(request.getLocales() != null ? request.getLocales() : new ArrayList<>())
                 .subRoles(subRoles)
-                .localesConComision(localesConComision)
+                .localesConComisionIds(request.getLocalesConComision() != null ? request.getLocalesConComision() : new ArrayList<>())
                 .createdBy(currentUser.getUsername())
                 .active(true)
                 .build();
@@ -131,14 +122,12 @@ public class AdminController {
                 .username(savedUser.getUsername())
                 .email(savedUser.getEmail())
                 .role(savedUser.getRole().name())
-                .locales(savedUser.getLocales() != null 
-                        ? savedUser.getLocales().stream().map(Enum::name).collect(Collectors.toList())
-                        : new ArrayList<>())
+                .locales(savedUser.getLocalIds() != null ? savedUser.getLocalIds() : new ArrayList<>())
                 .subRoles(savedUser.getSubRoles() != null
                         ? savedUser.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
                         : new ArrayList<>())
-                .localesConComision(savedUser.getLocalesConComision() != null
-                        ? savedUser.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
+                .localesConComision(savedUser.getLocalesConComisionIds() != null 
+                        ? savedUser.getLocalesConComisionIds() 
                         : new ArrayList<>())
                 .active(savedUser.isActive())
                 .createdAt(savedUser.getCreatedAt())
@@ -202,14 +191,14 @@ public class AdminController {
                         .username(user.getUsername())
                         .email(user.getEmail())
                         .role(user.getRole().name())
-                        .locales(user.getLocales() != null 
-                                ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                        .locales(user.getLocalIds() != null 
+                                ? user.getLocalIds()
                                 : new ArrayList<>())
                         .subRoles(user.getSubRoles() != null
                                 ? user.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
                                 : new ArrayList<>())
-                        .localesConComision(user.getLocalesConComision() != null
-                                ? user.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
+                        .localesConComision(user.getLocalesConComisionIds() != null
+                                ? user.getLocalesConComisionIds()
                                 : new ArrayList<>())
                         .active(user.isActive())
                         .createdAt(user.getCreatedAt())
@@ -236,14 +225,14 @@ public class AdminController {
                 .username(updatedUser.getUsername())
                 .email(updatedUser.getEmail())
                 .role(updatedUser.getRole().name())
-                .locales(updatedUser.getLocales() != null 
-                        ? updatedUser.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                .locales(updatedUser.getLocalIds() != null 
+                        ? updatedUser.getLocalIds()
                         : new ArrayList<>())
                 .subRoles(updatedUser.getSubRoles() != null
                         ? updatedUser.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
                         : new ArrayList<>())
-                .localesConComision(updatedUser.getLocalesConComision() != null
-                        ? updatedUser.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
+                .localesConComision(updatedUser.getLocalesConComisionIds() != null
+                        ? updatedUser.getLocalesConComisionIds()
                         : new ArrayList<>())
                 .active(updatedUser.isActive())
                 .createdAt(updatedUser.getCreatedAt())
@@ -322,14 +311,10 @@ public class AdminController {
         // Actualizar locales si están presentes
         if (request.getLocales() != null) {
             try {
-                List<com.muebleria.model.Local> locales = request.getLocales().stream()
-                        .map(com.muebleria.model.Local::valueOf)
-                        .collect(Collectors.toList());
-                user.setLocales(locales);
-            } catch (IllegalArgumentException e) {
-                return ResponseEntity
-                        .badRequest()
-                        .body("Local inválido. Valores permitidos: QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ");
+                localService.validateLocalIds(request.getLocales());
+                user.setLocalIds(request.getLocales());
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(e.getMessage());
             }
         }
         
@@ -357,14 +342,10 @@ public class AdminController {
             }
             
             try {
-                List<com.muebleria.model.Local> localesConComision = request.getLocalesConComision().stream()
-                        .map(com.muebleria.model.Local::valueOf)
-                        .collect(Collectors.toList());
-                user.setLocalesConComision(localesConComision);
-            } catch (IllegalArgumentException e) {
-                return ResponseEntity
-                        .badRequest()
-                        .body("Local inválido en localesConComision. Valores permitidos: QUILLOTA, COQUIMBO, MUEBLES_SANCHEZ");
+                localService.validateLocalIds(request.getLocalesConComision());
+                user.setLocalesConComisionIds(request.getLocalesConComision());
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(e.getMessage());
             }
         }
         
@@ -375,14 +356,14 @@ public class AdminController {
                 .username(updatedUser.getUsername())
                 .email(updatedUser.getEmail())
                 .role(updatedUser.getRole().name())
-                .locales(updatedUser.getLocales() != null 
-                        ? updatedUser.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                .locales(updatedUser.getLocalIds() != null 
+                        ? updatedUser.getLocalIds()
                         : new ArrayList<>())
                 .subRoles(updatedUser.getSubRoles() != null
                         ? updatedUser.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())
                         : new ArrayList<>())
-                .localesConComision(updatedUser.getLocalesConComision() != null
-                        ? updatedUser.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
+                .localesConComision(updatedUser.getLocalesConComisionIds() != null
+                        ? updatedUser.getLocalesConComisionIds()
                         : new ArrayList<>())
                 .active(updatedUser.isActive())
                 .createdAt(updatedUser.getCreatedAt())
@@ -412,13 +393,14 @@ public class AdminController {
         
         // Si se especifica un local, filtrar por vendedores que tengan ese local asignado
         if (local != null && !local.isEmpty()) {
+            // Validar que el local ID existe
             try {
-                com.muebleria.model.Local localEnum = com.muebleria.model.Local.valueOf(local);
+                localService.validateActiveLocalId(local);
                 vendedores = vendedores.stream()
-                        .filter(u -> u.getLocales() != null && u.getLocales().contains(localEnum))
+                        .filter(u -> u.getLocalIds() != null && u.getLocalIds().contains(local))
                         .collect(Collectors.toList());
-            } catch (IllegalArgumentException e) {
-                // Si el local es inválido, devolver lista vacía
+            } catch (Exception e) {
+                // Si el local es inválido o no existe, devolver lista vacía
                 return ResponseEntity.ok(new ArrayList<>());
             }
         }
@@ -430,8 +412,8 @@ public class AdminController {
                         .username(user.getUsername())
                         .email(user.getEmail())
                         .role(user.getRole().name())
-                        .locales(user.getLocales() != null 
-                                ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+                        .locales(user.getLocalIds() != null 
+                                ? user.getLocalIds()
                                 : new ArrayList<>())
                         .subRoles(user.getSubRoles() != null
                                 ? user.getSubRoles().stream().map(Enum::name).collect(Collectors.toList())

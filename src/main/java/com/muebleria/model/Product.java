@@ -26,8 +26,8 @@ public class Product {
     
     private String categoria;
     
-    // Local al que pertenece este producto
-    private Local local;
+    // Local al que pertenece este producto (ID de LocalEntity)
+    private String localId;
     
     // Stock del producto en su local
     @Builder.Default

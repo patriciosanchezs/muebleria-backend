@@ -39,8 +39,8 @@ public class DebugController {
             response.put("found", true);
             response.put("username", admin.getUsername());
             response.put("role", admin.getRole().name());
-            response.put("locales", admin.getLocales() != null ? 
-                admin.getLocales().stream().map(Enum::name).toList() : new ArrayList<>());
+            response.put("locales", admin.getLocalIds() != null ? 
+                admin.getLocalIds() : new ArrayList<>());
             response.put("active", admin.isActive());
         }
         
@@ -58,11 +58,11 @@ public class DebugController {
         
         // Guardar estado anterior
         String roleBefore = admin.getRole().name();
-        int localesCountBefore = admin.getLocales() != null ? admin.getLocales().size() : 0;
+        int localesCountBefore = admin.getLocalIds() != null ? admin.getLocalIds().size() : 0;
         
         // Corregir usuario admin
         admin.setRole(Role.ADMINISTRADOR);
-        admin.setLocales(new ArrayList<>()); // Admin no debe tener locales específicos
+        admin.setLocalIds(new ArrayList<>()); // Admin no debe tener locales específicos
         admin.setSubRoles(new ArrayList<>()); // Admin no debe tener sub-roles
         
         User saved = userRepository.save(admin);
@@ -76,7 +76,7 @@ public class DebugController {
         ));
         response.put("after", Map.of(
             "role", saved.getRole().name(),
-            "localesCount", saved.getLocales().size()
+            "localesCount", saved.getLocalIds().size()
         ));
         response.put("note", "Por favor, cierra sesión y vuelve a iniciar sesión para aplicar los cambios");
         

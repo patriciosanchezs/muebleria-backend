@@ -21,7 +21,7 @@ public class ProductRequest {
     private String categoria;
     
     @NotBlank(message = "El local es requerido")
-    private String local; // VALDIVIA, OSORNO, CHILOE
+    private String local; // ID de LocalEntity
     
     @NotNull(message = "El stock es requerido")
     @Min(value = 0, message = "El stock debe ser mayor o igual a 0")

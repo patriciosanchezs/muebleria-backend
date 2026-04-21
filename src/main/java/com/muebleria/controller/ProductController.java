@@ -2,7 +2,6 @@ package com.muebleria.controller;
 
 import com.muebleria.dto.ProductRequest;
 import com.muebleria.dto.ProductResponse;
-import com.muebleria.model.Local;
 import com.muebleria.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -67,8 +66,7 @@ public class ProductController {
     @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION', 'BODEGUERO')")
     public ResponseEntity<Map<String, Integer>> getStockByLocal(@PathVariable String id,
                                                                   @PathVariable String local) {
-        Local localEnum = Local.valueOf(local);
-        Integer stock = productService.getStockByLocal(id, localEnum);
+        Integer stock = productService.getStockByLocal(id, local);
         Map<String, Integer> response = new HashMap<>();
         response.put("stock", stock);
         return ResponseEntity.ok(response);

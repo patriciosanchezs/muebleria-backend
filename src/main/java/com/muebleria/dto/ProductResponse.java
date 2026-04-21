@@ -17,7 +17,7 @@ public class ProductResponse {
     private String descripcion;
     private Double precio;
     private String categoria;
-    private String local; // VALDIVIA, OSORNO, CHILOE
+    private String local; // ID de LocalEntity
     private Integer stock;
     private String imageUrl;
     private LocalDateTime fechaCreacion;

@@ -18,6 +18,7 @@ public class CommissionService {
     private final ProductService productService;
     private final AuthHelper authHelper;
     private final UserRepository userRepository;
+    private final LocalService localService;
     
     // Comisiones fijas por canal de venta (sub-rol)
     private static final double COMISION_EN_LOCAL = 2500.0;           // VENDEDOR_LOCAL
@@ -88,7 +89,7 @@ public class CommissionService {
             .saleId(sale.getId())
             .vendedorUsername(vendedorUsername)
             .fechaVenta(sale.getFechaVenta())
-            .local(sale.getLocal())
+            .localId(sale.getLocalId())
             .items(commissionItems)
             .totalComision(totalComision)
             .build();
@@ -136,7 +137,7 @@ public class CommissionService {
             .saleId(sale.getId())
             .vendedorUsername(adminLocalId) // Usar ID del ADMIN_LOCAL
             .fechaVenta(sale.getFechaVenta())
-            .local(sale.getLocal())
+            .localId(sale.getLocalId())
             .items(commissionItems)
             .totalComision(totalComision)
             .build();
@@ -186,7 +187,7 @@ public class CommissionService {
             return commissions;
         }
         
-        List<Local> authorizedLocales = authHelper.getAuthorizedLocales(authentication);
+        List<String> authorizedLocales = authHelper.getAuthorizedLocales(authentication);
         
         // ADMINISTRADOR ve todas
         if (authHelper.isGlobalAdmin(authentication)) {
@@ -195,7 +196,7 @@ public class CommissionService {
         
         // Filtrar por locales autorizados
         return commissions.stream()
-                .filter(commission -> authorizedLocales.contains(commission.getLocal()))
+                .filter(commission -> authorizedLocales.contains(commission.getLocalId()))
                 .collect(java.util.stream.Collectors.toList());
     }
     
@@ -220,26 +221,29 @@ public class CommissionService {
             org.springframework.security.core.Authentication authentication) {
         
         // Obtener locales autorizados
-        List<Local> authorizedLocales = authHelper.isGlobalAdmin(authentication)
-                ? Arrays.asList(Local.values())
+        List<String> authorizedLocales = authHelper.isGlobalAdmin(authentication)
+                ? localService.getAllActiveLocalEntities().stream()
+                    .map(local -> local.getId())
+                    .collect(Collectors.toList())
                 : authHelper.getAuthorizedLocales(authentication);
         
         // Filtrar por local si se especifica (debe ser final para usar en lambdas)
-        final List<Local> targetLocales;
+        final List<String> targetLocales;
         if (localFilter != null && !localFilter.isEmpty()) {
-            Local local = null;
+            List<String> tempLocales;
             try {
-                local = Local.valueOf(localFilter);
-            } catch (IllegalArgumentException e) {
-                // Local inválido, se mantendrá como null
+                localService.validateActiveLocalId(localFilter);
+                if (authorizedLocales.contains(localFilter)) {
+                    tempLocales = Collections.singletonList(localFilter);
+                } else {
+                    // No tiene acceso a este local o local inválido
+                    tempLocales = Collections.emptyList();
+                }
+            } catch (Exception e) {
+                // Local inválido
+                tempLocales = Collections.emptyList();
             }
-            
-            if (local != null && authorizedLocales.contains(local)) {
-                targetLocales = Collections.singletonList(local);
-            } else {
-                // No tiene acceso a este local o local inválido
-                targetLocales = Collections.emptyList();
-            }
+            targetLocales = tempLocales;
         } else {
             targetLocales = authorizedLocales;
         }
@@ -254,7 +258,7 @@ public class CommissionService {
         
         // Filtrar por locales autorizados
         List<Commission> filteredCommissions = allCommissions.stream()
-                .filter(c -> targetLocales.contains(c.getLocal()))
+                .filter(c -> targetLocales.contains(c.getLocalId()))
                 .collect(Collectors.toList());
         
         // Filtrar por usuario si se especifica (debe ser final para usar en lambdas)
@@ -289,13 +293,13 @@ public class CommissionService {
                 .filter(u -> {
                     // Filtrar por locales: debe tener al menos un local en común con targetLocales
                     if (u.getRole() == Role.ADMIN_LOCAL) {
-                        // ADMIN_LOCAL: verificar localesConComision
-                        return u.getLocalesConComision() != null &&
-                               u.getLocalesConComision().stream().anyMatch(targetLocales::contains);
+                        // ADMIN_LOCAL: verificar localesConComisionIds
+                        return u.getLocalesConComisionIds() != null &&
+                               u.getLocalesConComisionIds().stream().anyMatch(targetLocales::contains);
                     } else {
-                        // VENDEDOR, ENCARGADO_LOCAL: verificar locales
-                        return u.getLocales() != null &&
-                               u.getLocales().stream().anyMatch(targetLocales::contains);
+                        // VENDEDOR, ENCARGADO_LOCAL: verificar localIds
+                        return u.getLocalIds() != null &&
+                               u.getLocalIds().stream().anyMatch(targetLocales::contains);
                     }
                 })
                 .collect(Collectors.toList());
@@ -318,12 +322,35 @@ public class CommissionService {
                     summary.put("username", user.getUsername());
                     summary.put("email", user.getEmail());
                     summary.put("role", user.getRole().name());
-                    summary.put("locales", user.getLocales() != null
-                            ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
-                            : Collections.emptyList());
-                    summary.put("localesConComision", user.getLocalesConComision() != null
-                            ? user.getLocalesConComision().stream().map(Enum::name).collect(Collectors.toList())
-                            : Collections.emptyList());
+                    
+                    // Convertir IDs de locales a nombres
+                    List<String> localNames = user.getLocalIds() != null
+                            ? user.getLocalIds().stream()
+                                .map(localId -> {
+                                    try {
+                                        return localService.getLocalById(localId).getNombre();
+                                    } catch (Exception e) {
+                                        return localId; // Fallback al ID si no se encuentra
+                                    }
+                                })
+                                .collect(Collectors.toList())
+                            : Collections.emptyList();
+                    summary.put("locales", localNames);
+                    
+                    // Convertir IDs de locales con comisión a nombres
+                    List<String> localConComisionNames = user.getLocalesConComisionIds() != null
+                            ? user.getLocalesConComisionIds().stream()
+                                .map(localId -> {
+                                    try {
+                                        return localService.getLocalById(localId).getNombre();
+                                    } catch (Exception e) {
+                                        return localId; // Fallback al ID si no se encuentra
+                                    }
+                                })
+                                .collect(Collectors.toList())
+                            : Collections.emptyList();
+                    summary.put("localesConComision", localConComisionNames);
+                    
                     summary.put("totalComision", total);
                     summary.put("cantidadComisiones", userCommissions.size());
 
@@ -352,7 +379,7 @@ public class CommissionService {
                     commissionMap.put("saleId", commission.getSaleId());
                     commissionMap.put("vendedorUsername", commission.getVendedorUsername()); // ID o username
                     commissionMap.put("fechaVenta", commission.getFechaVenta());
-                    commissionMap.put("local", commission.getLocal().name());
+                    commissionMap.put("local", commission.getLocalId());
                     commissionMap.put("items", commission.getItems());
                     commissionMap.put("totalComision", commission.getTotalComision());
                     
@@ -379,7 +406,7 @@ public class CommissionService {
         response.put("commissions", enrichedCommissions);
         response.put("totalGeneral", totalGeneral);
         response.put("cantidadTotal", filteredCommissions.size());
-        response.put("localesAutorizados", targetLocales.stream().map(Enum::name).collect(Collectors.toList()));
+        response.put("localesAutorizados", targetLocales); // Already String list
         
         return response;
     }
