@@ -24,15 +24,15 @@ public class CreateUserRequest {
     
     @NotBlank(message = "El rol es requerido")
     @Pattern(
-        regexp = "ADMINISTRADOR|ADMIN_LOCAL|ENCARGADO_LOCAL|VENDEDOR|BODEGUERO|FLETERO",
-        message = "El rol debe ser: ADMINISTRADOR, ADMIN_LOCAL, ENCARGADO_LOCAL, VENDEDOR, BODEGUERO o FLETERO"
+        regexp = "ADMINISTRADOR|ADMIN_LOCAL|ENCARGADO_LOCAL|VENDEDOR|VENDEDOR_SIN_COMISION|BODEGUERO|FLETERO",
+        message = "El rol debe ser: ADMINISTRADOR, ADMIN_LOCAL, ENCARGADO_LOCAL, VENDEDOR, VENDEDOR_SIN_COMISION, BODEGUERO o FLETERO"
     )
     private String role;
     
-    // Locales asignados (requerido para ADMIN_LOCAL, ENCARGADO_LOCAL, VENDEDOR, BODEGUERO y FLETERO)
+    // Locales asignados (requerido para ADMIN_LOCAL, ENCARGADO_LOCAL, VENDEDOR, VENDEDOR_SIN_COMISION, BODEGUERO y FLETERO)
     private List<String> locales;
     
-    // Sub-roles (opcional, solo para VENDEDOR y ENCARGADO_LOCAL)
+    // Sub-roles (opcional, solo para VENDEDOR, VENDEDOR_SIN_COMISION y ENCARGADO_LOCAL)
     // Valores permitidos: VENDEDOR_LOCAL, ONLINE_CON_BUSINESS, ONLINE_SIN_BUSINESS
     private List<String> subRoles;
     

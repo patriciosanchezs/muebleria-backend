@@ -27,7 +27,7 @@ public class SaleController {
      * Crear una nueva venta (ADMINISTRADOR, ADMIN_LOCAL, ENCARGADO_LOCAL y VENDEDOR)
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
     public ResponseEntity<Sale> createSale(
             @Valid @RequestBody SaleRequest request,
             Authentication authentication) {
@@ -42,7 +42,7 @@ public class SaleController {
      * Por defecto devuelve solo las ventas del día actual.
      */
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
     public ResponseEntity<List<Sale>> getAllSales(
             @RequestParam(required = false) String local,
             @RequestParam(required = false) String vendedor,
@@ -65,7 +65,7 @@ public class SaleController {
      * Obtener una venta por ID (ADMINISTRADOR, ADMIN_LOCAL y VENDEDOR)
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
     public ResponseEntity<Sale> getSaleById(@PathVariable String id) {
         Sale sale = saleService.getSaleById(id);
         return ResponseEntity.ok(sale);
@@ -76,7 +76,7 @@ public class SaleController {
      * Ejemplo: /sales/by-date?start=2024-01-01T00:00:00&end=2024-12-31T23:59:59
      */
     @GetMapping("/by-date")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
     public ResponseEntity<List<Sale>> getSalesByDateRange(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
@@ -113,7 +113,7 @@ public class SaleController {
      * El vendedor autenticado obtiene sus propias ventas
      */
     @GetMapping("/my-sales")
-    @PreAuthorize("hasRole('VENDEDOR')")
+    @PreAuthorize("hasAnyRole('VENDEDOR', 'VENDEDOR_SIN_COMISION')")
     public ResponseEntity<List<Sale>> getMySales(Authentication authentication) {
         String vendedor = authentication.getName();
         List<Sale> sales = saleService.getSalesByVendedor(vendedor);
@@ -228,7 +228,7 @@ public class SaleController {
      * Retorna ventas del día y del mes del vendedor autenticado
      */
     @GetMapping("/my-stats")
-    @PreAuthorize("hasRole('VENDEDOR')")
+    @PreAuthorize("hasAnyRole('VENDEDOR', 'VENDEDOR_SIN_COMISION')")
     public ResponseEntity<Map<String, Object>> getMyStats(Authentication authentication) {
         String vendedor = authentication.getName();
         Map<String, Object> stats = saleService.getVendedorStats(vendedor);
@@ -306,7 +306,7 @@ public class SaleController {
      * Obtener ventas aprobadas (ADMINISTRADOR, ADMIN_LOCAL y VENDEDOR)
      */
     @GetMapping("/approved")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
     public ResponseEntity<List<Sale>> getApprovedSales(Authentication authentication) {
         List<Sale> approvedSales = saleService.getApprovedSales(authentication);
         return ResponseEntity.ok(approvedSales);

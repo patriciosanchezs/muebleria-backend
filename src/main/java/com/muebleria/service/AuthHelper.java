@@ -1,6 +1,5 @@
 package com.muebleria.service;
 
-import com.muebleria.model.Local;
 import com.muebleria.model.Role;
 import com.muebleria.model.User;
 import com.muebleria.repository.UserRepository;
@@ -8,14 +7,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
 public class AuthHelper {
     
     private final UserRepository userRepository;
+    private final LocalService localService;
     
     /**
      * Obtiene el usuario autenticado
@@ -29,12 +29,12 @@ public class AuthHelper {
     }
     
     /**
-     * Obtiene los locales autorizados del usuario
-     * - ADMINISTRADOR: Retorna todos los locales (sin filtro)
+     * Obtiene los IDs de locales autorizados del usuario
+     * - ADMINISTRADOR: Retorna todos los locales activos de la BD
      * - ADMIN_LOCAL: Retorna solo sus locales asignados
      * - Otros roles: Retorna sus locales asignados
      */
-    public List<Local> getAuthorizedLocales(Authentication authentication) {
+    public List<String> getAuthorizedLocales(Authentication authentication) {
         User user = getAuthenticatedUser(authentication);
         
         if (user == null) {
@@ -43,11 +43,13 @@ public class AuthHelper {
         
         // ADMINISTRADOR tiene acceso a todos los locales
         if (user.getRole() == Role.ADMINISTRADOR) {
-            return Arrays.asList(Local.values());
+            return localService.getAllActiveLocalEntities().stream()
+                    .map(local -> local.getId())
+                    .collect(Collectors.toList());
         }
         
         // ADMIN_LOCAL y otros roles: solo sus locales asignados
-        return user.getLocales() != null ? user.getLocales() : List.of();
+        return user.getLocalIds() != null ? user.getLocalIds() : List.of();
     }
     
     /**
@@ -76,7 +78,7 @@ public class AuthHelper {
     /**
      * Obtiene los locales del usuario (alias de getAuthorizedLocales)
      */
-    public List<Local> getUserLocales(Authentication authentication) {
+    public List<String> getUserLocales(Authentication authentication) {
         return getAuthorizedLocales(authentication);
     }
 }

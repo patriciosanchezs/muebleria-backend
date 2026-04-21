@@ -5,7 +5,6 @@ import com.muebleria.dto.SaleRequest;
 import com.muebleria.exception.BadRequestException;
 import com.muebleria.exception.ResourceNotFoundException;
 import com.muebleria.model.CanalVenta;
-import com.muebleria.model.Local;
 import com.muebleria.model.Product;
 import com.muebleria.model.Sale;
 import com.muebleria.model.SaleItem;
@@ -31,6 +30,7 @@ public class SaleService {
     private final CommissionService commissionService;
     private final UserRepository userRepository;
     private final AuthHelper authHelper;
+    private final LocalService localService;
     
     /**
      * Crea una nueva venta, valida stock por local y descuenta productos del local correcto.
@@ -42,12 +42,9 @@ public class SaleService {
             throw new BadRequestException("Debe especificar el local de la venta");
         }
         
-        Local local;
-        try {
-            local = Local.valueOf(request.getLocal());
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Local inválido: " + request.getLocal());
-        }
+        // Validar que el local ID existe y está activo
+        localService.validateActiveLocalId(request.getLocal());
+        String localId = request.getLocal();
         
         // Validar y convertir canal de venta
         CanalVenta canalVenta;
@@ -58,7 +55,7 @@ public class SaleService {
         }
         
         // 2. Validar que todos los productos tengan stock suficiente en el local especificado
-        validateStockByLocal(request.getItems(), local);
+        validateStockByLocal(request.getItems(), localId);
         
         // Determinar el dueño de la venta: vendedor asignado o usuario de sesión
         String vendedorFinal = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty() 
@@ -126,17 +123,16 @@ public class SaleService {
                 .clienteCorreo(request.getClienteCorreo())
                 .clienteTelefono(request.getClienteTelefono())
                 .tipoEntrega(request.getTipoEntrega())
-                .local(local)
+                .localId(localId)
                 .canalVenta(canalVenta)
                 .notas(request.getNotas())
                 .fechaVenta(LocalDateTime.now());
         
-        // Determinar estado de aprobación según el rol del vendedor final (dueño de la venta)
-        User vendedorUser = userRepository.findByUsername(vendedorFinal)
-                .orElseThrow(() -> new ResourceNotFoundException("Vendedor no encontrado"));
-        
-        if ("VENDEDOR".equals(vendedorUser.getRole().name())) {
-            // Vendedores crean ventas en estado PENDIENTE_APROBACION
+        // Determinar estado de aprobación según el rol de QUIEN REGISTRA la venta (no del vendedor asignado)
+        // Si quien registra es ADMIN, ADMIN_LOCAL o ENCARGADO_LOCAL → APROBADA automáticamente
+        // Si quien registra es VENDEDOR o VENDEDOR_SIN_COMISION → PENDIENTE_APROBACION
+        if ("VENDEDOR".equals(currentUser.getRole().name()) || "VENDEDOR_SIN_COMISION".equals(currentUser.getRole().name())) {
+            // Vendedores (con o sin comisión) crean ventas en estado PENDIENTE_APROBACION
             saleBuilder.estadoAprobacion("PENDIENTE_APROBACION");
         } else {
             // Admins, Admin Local y Encargado Local crean ventas ya APROBADAS
@@ -169,7 +165,7 @@ public class SaleService {
         // Para ventas pendientes, el stock se descuenta al aprobar
         if ("APROBADA".equals(savedSale.getEstadoAprobacion())) {
             for (SaleItemRequest itemRequest : request.getItems()) {
-                productService.decreaseStock(itemRequest.getProductId(), local, itemRequest.getCantidad());
+                productService.decreaseStock(itemRequest.getProductId(), localId, itemRequest.getCantidad());
             }
         }
         
@@ -191,13 +187,15 @@ public class SaleService {
                 boolean shouldCreateCommission = false;
                 
                 if (request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()) {
-                    // Caso 1: Hay vendedor asignado - siempre crear comisión para ese vendedor
-                    if (comissionUser != null && ("VENDEDOR".equals(comissionUser.getRole().name()) || "ENCARGADO_LOCAL".equals(comissionUser.getRole().name()))) {
+                    // Caso 1: Hay vendedor asignado - crear comisión solo si es VENDEDOR o ENCARGADO_LOCAL (NO para VENDEDOR_SIN_COMISION)
+                    if (comissionUser != null && 
+                        ("VENDEDOR".equals(comissionUser.getRole().name()) || "ENCARGADO_LOCAL".equals(comissionUser.getRole().name()))) {
                         shouldCreateCommission = true;
                     }
                 } else {
-                    // Caso 2: No hay vendedor asignado - crear comisión solo si quien registra es VENDEDOR o ENCARGADO_LOCAL
-                    if (currentUser != null && ("VENDEDOR".equals(currentUser.getRole().name()) || "ENCARGADO_LOCAL".equals(currentUser.getRole().name()))) {
+                    // Caso 2: No hay vendedor asignado - crear comisión solo si quien registra es VENDEDOR o ENCARGADO_LOCAL (NO para VENDEDOR_SIN_COMISION)
+                    if (currentUser != null && 
+                        ("VENDEDOR".equals(currentUser.getRole().name()) || "ENCARGADO_LOCAL".equals(currentUser.getRole().name()))) {
                         shouldCreateCommission = true;
                     }
                 }
@@ -227,7 +225,7 @@ public class SaleService {
         // Buscar todos los ADMIN_LOCAL que tienen este local en su lista de comisiones
         List<User> adminLocales = userRepository.findAll().stream()
                 .filter(u -> u.getRole().name().equals("ADMIN_LOCAL"))
-                .filter(u -> u.getLocalesConComision() != null && u.getLocalesConComision().contains(sale.getLocal()))
+                .filter(u -> u.getLocalesConComisionIds() != null && u.getLocalesConComisionIds().contains(sale.getLocalId()))
                 .collect(Collectors.toList());
         
         // Para cada ADMIN_LOCAL, crear comisiones
@@ -239,7 +237,7 @@ public class SaleService {
     /**
      * Valida que haya stock suficiente en un local específico para todos los productos.
      */
-    private void validateStockByLocal(List<SaleItemRequest> items, Local local) {
+    private void validateStockByLocal(List<SaleItemRequest> items, String localId) {
         List<String> errors = new ArrayList<>();
         
         for (SaleItemRequest item : items) {
@@ -247,10 +245,10 @@ public class SaleService {
                 Product product = productService.getProductById(item.getProductId());
                 
                 // Validar que el producto pertenece al local de la venta
-                if (!local.equals(product.getLocal())) {
+                if (!localId.equals(product.getLocalId())) {
                     errors.add(String.format(
-                        "Producto '%s' no pertenece al local %s",
-                        product.getNombre(), local.name()
+                        "Producto '%s' no pertenece al local con ID %s",
+                        product.getNombre(), localId
                     ));
                     continue;
                 }
@@ -263,8 +261,8 @@ public class SaleService {
                 Integer stockEnLocal = product.getStock();
                 if (stockEnLocal < item.getCantidad()) {
                     errors.add(String.format(
-                        "Stock insuficiente para '%s' en %s. Disponible: %d, Requerido: %d",
-                        product.getNombre(), local.name(), stockEnLocal, item.getCantidad()
+                        "Stock insuficiente para '%s' en local %s. Disponible: %d, Requerido: %d",
+                        product.getNombre(), localId, stockEnLocal, item.getCantidad()
                     ));
                 }
             } catch (ResourceNotFoundException e) {
@@ -329,14 +327,10 @@ public class SaleService {
         
         // Aplicar filtros adicionales
         if (local != null && !local.isEmpty() && !local.equals("ALL")) {
-            try {
-                Local filterLocal = Local.valueOf(local);
-                sales = sales.stream()
-                        .filter(sale -> sale.getLocal() == filterLocal)
-                        .collect(Collectors.toList());
-            } catch (IllegalArgumentException e) {
-                // Local inválido, ignorar filtro
-            }
+            final String localId = local;
+            sales = sales.stream()
+                    .filter(sale -> localId.equals(sale.getLocalId()))
+                    .collect(Collectors.toList());
         }
         
         if (vendedor != null && !vendedor.isEmpty() && !vendedor.equals("ALL")) {
@@ -409,10 +403,12 @@ public class SaleService {
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
+            // Validate localId exists
             try {
-                Local filterLocal = Local.valueOf(localFilter);
+                localService.validateActiveLocalId(localFilter);
+                final String localId = localFilter;
                 sales = sales.stream()
-                        .filter(sale -> sale.getLocal() == filterLocal)
+                        .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
                 // Si el local no es válido, devolver lista vacía
@@ -457,10 +453,12 @@ public class SaleService {
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
+            // Validate localId exists
             try {
-                Local filterLocal = Local.valueOf(localFilter);
+                localService.validateActiveLocalId(localFilter);
+                final String localId = localFilter;
                 sales = sales.stream()
-                        .filter(sale -> sale.getLocal() == filterLocal)
+                        .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
                 // Si el local no es válido, devolver lista vacía
@@ -550,10 +548,12 @@ public class SaleService {
         
         // Aplicar filtro de local específico si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
+            // Validate localId exists
             try {
-                Local filterLocal = Local.valueOf(localFilter);
+                localService.validateActiveLocalId(localFilter);
+                final String localId = localFilter;
                 completedDeliveries = completedDeliveries.stream()
-                        .filter(sale -> sale.getLocal() == filterLocal)
+                        .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
                 completedDeliveries = List.of();
@@ -663,10 +663,12 @@ public class SaleService {
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
+            // Validate localId exists
             try {
-                Local filterLocal = Local.valueOf(localFilter);
+                localService.validateActiveLocalId(localFilter);
+                final String localId = localFilter;
                 allSales = allSales.stream()
-                        .filter(sale -> sale.getLocal() == filterLocal)
+                        .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
                 // Si el local no es válido, devolver lista vacía
@@ -708,7 +710,7 @@ public class SaleService {
             return sales;
         }
         
-        List<Local> authorizedLocales = authHelper.getAuthorizedLocales(authentication);
+        List<String> authorizedLocales = authHelper.getAuthorizedLocales(authentication);
         
         // ADMINISTRADOR ve todas
         if (authHelper.isGlobalAdmin(authentication)) {
@@ -717,7 +719,7 @@ public class SaleService {
         
         // Filtrar por locales autorizados
         return sales.stream()
-                .filter(sale -> authorizedLocales.contains(sale.getLocal()))
+                .filter(sale -> authorizedLocales.contains(sale.getLocalId()))
                 .collect(Collectors.toList());
     }
     
@@ -734,15 +736,17 @@ public class SaleService {
         
         // Filtrar ventas que no tienen local asignado (datos inconsistentes)
         allSales = allSales.stream()
-                .filter(sale -> sale.getLocal() != null)
+                .filter(sale -> sale.getLocalId() != null)
                 .collect(Collectors.toList());
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
+            // Validate localId exists
             try {
-                Local filterLocal = Local.valueOf(localFilter);
+                localService.validateActiveLocalId(localFilter);
+                final String localId = localFilter;
                 allSales = allSales.stream()
-                        .filter(sale -> sale.getLocal() == filterLocal)
+                        .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
                 // Si el local no es válido, devolver lista vacía
@@ -750,13 +754,13 @@ public class SaleService {
             }
         }
         
-        // Agrupar por local (ahora seguro que todos tienen local != null)
-        Map<Local, List<Sale>> salesByLocal = allSales.stream()
-                .collect(Collectors.groupingBy(Sale::getLocal));
+        // Agrupar por local (ahora seguro que todos tienen localId != null)
+        Map<String, List<Sale>> salesByLocal = allSales.stream()
+                .collect(Collectors.groupingBy(Sale::getLocalId));
         
         return salesByLocal.entrySet().stream()
                 .map(entry -> {
-                    Local local = entry.getKey();
+                    String localId = entry.getKey();
                     List<Sale> ventas = entry.getValue();
                     
                     double totalVentas = ventas.stream()
@@ -774,7 +778,7 @@ public class SaleService {
                             ));
                     
                     Map<String, Object> localStats = new HashMap<>();
-                    localStats.put("local", local.name());
+                    localStats.put("local", localId);
                     localStats.put("cantidadVentas", cantidadVentas);
                     localStats.put("totalVentas", totalVentas);
                     localStats.put("ventasPorCanal", ventasPorCanal);
@@ -805,15 +809,17 @@ public class SaleService {
                 .filter(sale -> "DESPACHO".equals(sale.getTipoEntrega()))
                 .filter(sale -> "ENTREGADO".equals(sale.getEstadoEntrega()))
                 .filter(sale -> sale.getMontoFlete() != null && sale.getMontoFlete() > 0)
-                .filter(sale -> sale.getLocal() != null) // Filtrar ventas sin local
+                .filter(sale -> sale.getLocalId() != null) // Filtrar ventas sin local
                 .collect(Collectors.toList());
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
+            // Validate localId exists
             try {
-                Local filterLocal = Local.valueOf(localFilter);
+                localService.validateActiveLocalId(localFilter);
+                final String localId = localFilter;
                 fletes = fletes.stream()
-                        .filter(sale -> sale.getLocal() == filterLocal)
+                        .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
                 fletes = List.of();
@@ -839,17 +845,17 @@ public class SaleService {
                     Collectors.summingDouble(Sale::getMontoFlete)
                 ));
         
-        // Fletes por local (ahora seguro que todos tienen local != null)
+        // Fletes por local (ahora seguro que todos tienen localId != null)
         Map<String, Long> fletesPorLocal = fletes.stream()
                 .collect(Collectors.groupingBy(
-                    sale -> sale.getLocal().name(),
+                    Sale::getLocalId,
                     Collectors.counting()
                 ));
         
         // Total por local
         Map<String, Double> totalPorLocal = fletes.stream()
                 .collect(Collectors.groupingBy(
-                    sale -> sale.getLocal().name(),
+                    Sale::getLocalId,
                     Collectors.summingDouble(Sale::getMontoFlete)
                 ));
         
@@ -872,13 +878,13 @@ public class SaleService {
         List<Sale> pendingSales = saleRepository.findByEstadoAprobacion("PENDIENTE_APROBACION");
         
         // Filtrar por locales del usuario autenticado
-        List<Local> userLocales = authHelper.getUserLocales(authentication);
+        List<String> userLocales = authHelper.getUserLocales(authentication);
         if (authHelper.isAdmin(authentication)) {
             return pendingSales; // Admin ve todas
         }
         
         return pendingSales.stream()
-                .filter(sale -> userLocales.contains(sale.getLocal()))
+                .filter(sale -> userLocales.contains(sale.getLocalId()))
                 .collect(Collectors.toList());
     }
     
@@ -889,13 +895,13 @@ public class SaleService {
         List<Sale> approvedSales = saleRepository.findByEstadoAprobacion("APROBADA");
         
         // Filtrar por locales del usuario autenticado
-        List<Local> userLocales = authHelper.getUserLocales(authentication);
+        List<String> userLocales = authHelper.getUserLocales(authentication);
         if (authHelper.isAdmin(authentication)) {
             return approvedSales; // Admin ve todas
         }
         
         return approvedSales.stream()
-                .filter(sale -> userLocales.contains(sale.getLocal()))
+                .filter(sale -> userLocales.contains(sale.getLocalId()))
                 .collect(Collectors.toList());
     }
     
@@ -918,7 +924,7 @@ public class SaleService {
         
         // Descontar stock ahora que la venta fue aprobada
         for (SaleItem item : approvedSale.getItems()) {
-            productService.decreaseStock(item.getProductId(), approvedSale.getLocal(), item.getCantidad());
+            productService.decreaseStock(item.getProductId(), approvedSale.getLocalId(), item.getCantidad());
         }
         
         // Crear comisión ahora que la venta fue aprobada
@@ -970,7 +976,7 @@ public class SaleService {
             throw new BadRequestException("No se puede editar una venta rechazada");
         }
         
-        Local saleLocal = sale.getLocal();
+        String saleLocal = sale.getLocalId();
         
         // Si hay cambios en los items, necesitamos ajustar el stock
         boolean itemsChanged = !itemsEqual(sale.getItems(), request.getItems());
@@ -995,7 +1001,7 @@ public class SaleService {
                     if (!productService.hasStock(product.getId(), saleLocal, itemReq.getCantidad())) {
                         throw new BadRequestException(
                             "Stock insuficiente para " + product.getNombre() + 
-                            " en " + saleLocal + ". Stock disponible: " + 
+                            " en local " + saleLocal + ". Stock disponible: " + 
                             productService.getProductById(product.getId()).getStock()
                         );
                     }

@@ -30,6 +30,13 @@ public enum Role {
     VENDEDOR,
     
     /**
+     * Vendedor Sin Comisión: Acceso idéntico a VENDEDOR pero NO genera comisiones.
+     * Puede ver productos y registrar ventas en sus locales asignados.
+     * Las ventas registradas no generan comisiones automáticas.
+     */
+    VENDEDOR_SIN_COMISION,
+    
+    /**
      * Fletero: Acceso solo a despachos.
      * Puede ver despachos pendientes de su local asignado y marcarlos como entregados.
      */

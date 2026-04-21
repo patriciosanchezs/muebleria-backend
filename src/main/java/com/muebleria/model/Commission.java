@@ -22,7 +22,7 @@ public class Commission {
     private String saleId;
     private String vendedorUsername;
     private LocalDateTime fechaVenta;
-    private Local local;
+    private String localId; // ID de LocalEntity
     private List<CommissionItem> items;
     private double totalComision;
 }

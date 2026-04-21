@@ -57,8 +57,8 @@ public class AuthService {
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String token = tokenProvider.generateToken(authentication);
         
-        List<String> locales = user.getLocales() != null 
-                ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+        List<String> locales = user.getLocalIds() != null 
+                ? user.getLocalIds()
                 : new ArrayList<>();
         
         List<String> subRoles = user.getSubRoles() != null
@@ -79,8 +79,8 @@ public class AuthService {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new BadRequestException("Usuario no encontrado"));
         
-        List<String> locales = user.getLocales() != null 
-                ? user.getLocales().stream().map(Enum::name).collect(Collectors.toList())
+        List<String> locales = user.getLocalIds() != null 
+                ? user.getLocalIds()
                 : new ArrayList<>();
         
         List<String> subRoles = user.getSubRoles() != null

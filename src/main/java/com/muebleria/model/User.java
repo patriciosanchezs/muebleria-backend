@@ -42,22 +42,22 @@ public class User {
     @Builder.Default
     private List<SubRol> subRoles = new ArrayList<>();
     
-    // Locales asignados al usuario
+    // Locales asignados al usuario (IDs de LocalEntity)
     // - ADMINISTRADOR: null/vacío (acceso a todos)
     // - ADMIN_LOCAL: 1 o más locales
     // - ENCARGADO_LOCAL: exactamente 1 local (validado en servicio)
     // - VENDEDOR: 1 o más locales (puede vender en varios)
     // - FLETERO: exactamente 1 local
     @Builder.Default
-    private List<Local> locales = new ArrayList<>();
+    private List<String> localIds = new ArrayList<>();
     
-    // Locales con comisión para ADMIN_LOCAL
+    // Locales con comisión para ADMIN_LOCAL (IDs de LocalEntity)
     // - Solo aplica para usuarios con rol ADMIN_LOCAL
     // - El ADMIN_LOCAL recibe comisión de TODAS las ventas de estos locales
     // - Puede tener 0, 1 o múltiples locales con comisión
     // - El ADMIN puede modificar esta lista cuando quiera
     @Builder.Default
-    private List<Local> localesConComision = new ArrayList<>();
+    private List<String> localesConComisionIds = new ArrayList<>();
     
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

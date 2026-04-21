@@ -66,8 +66,8 @@ public class Sale {
     // Método de pago del flete: EFECTIVO, TRANSFERENCIA, DEBITO, CREDITO
     private String metodoPagoFlete;
     
-    // Local/Sucursal donde se realizó la venta
-    private Local local;
+    // Local/Sucursal donde se realizó la venta (ID de LocalEntity)
+    private String localId;
     
     // Canal de venta: EN_LOCAL, ONLINE_BUSINESS, ONLINE_SIN_BUSINESS
     private CanalVenta canalVenta;
