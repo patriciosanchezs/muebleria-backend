@@ -12,8 +12,6 @@ public interface SaleRepository extends MongoRepository<Sale, String> {
     
     List<Sale> findByFechaVentaBetween(LocalDateTime start, LocalDateTime end);
     
-    List<Sale> findByMetodoPago(String metodoPago);
-    
     List<Sale> findByVendedor(String vendedor);
     
     List<Sale> findByVendedorAndFechaVentaBetween(String vendedor, LocalDateTime start, LocalDateTime end);

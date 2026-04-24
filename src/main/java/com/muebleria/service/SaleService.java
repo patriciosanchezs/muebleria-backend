@@ -1,10 +1,12 @@
 package com.muebleria.service;
 
+import com.muebleria.dto.PagoRequest;
 import com.muebleria.dto.SaleItemRequest;
 import com.muebleria.dto.SaleRequest;
 import com.muebleria.exception.BadRequestException;
 import com.muebleria.exception.ResourceNotFoundException;
 import com.muebleria.model.CanalVenta;
+import com.muebleria.model.Pago;
 import com.muebleria.model.Product;
 import com.muebleria.model.Sale;
 import com.muebleria.model.SaleItem;
@@ -56,6 +58,9 @@ public class SaleService {
         
         // 2. Validar que todos los productos tengan stock suficiente en el local especificado
         validateStockByLocal(request.getItems(), localId);
+        
+        // 3. Validar pagos
+        validatePagos(request.getPagos());
         
         // Determinar el dueño de la venta: vendedor asignado o usuario de sesión
         String vendedorFinal = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty() 
@@ -112,11 +117,22 @@ public class SaleService {
             totalCLP += subtotal;
         }
         
-        // 4. Crear la venta
+        // 4. Validar que la suma de pagos sea igual al total
+        validatePaymentTotal(request.getPagos(), totalCLP);
+        
+        // 5. Convertir PagoRequest a Pago
+        List<Pago> pagos = request.getPagos().stream()
+                .map(pr -> Pago.builder()
+                        .formaDePago(pr.getFormaDePago())
+                        .monto(pr.getMonto())
+                        .build())
+                .collect(Collectors.toList());
+        
+        // 6. Crear la venta
         Sale.SaleBuilder saleBuilder = Sale.builder()
                 .items(saleItems)
                 .totalCLP(totalCLP)
-                .metodoPago(request.getMetodoPago())
+                .pagos(pagos)  // Lista de pagos múltiples
                 .vendedor(vendedorFinal)  // Vendedor asignado o usuario de sesión
                 .clienteNombre(request.getClienteNombre())
                 .clienteDireccion(request.getClienteDireccion())
@@ -341,7 +357,8 @@ public class SaleService {
         
         if (metodoPago != null && !metodoPago.isEmpty() && !metodoPago.equals("ALL")) {
             sales = sales.stream()
-                    .filter(sale -> metodoPago.equals(sale.getMetodoPago()))
+                    .filter(sale -> sale.getPagos() != null && sale.getPagos().stream()
+                            .anyMatch(pago -> metodoPago.equals(pago.getFormaDePago())))
                     .collect(Collectors.toList());
         }
         
@@ -376,14 +393,7 @@ public class SaleService {
         return filterByAuthorizedLocales(sales, authentication);
     }
     
-    /**
-     * Obtiene ventas por método de pago (filtradas por locales autorizados).
-     */
-    public List<Sale> getSalesByPaymentMethod(String metodoPago, org.springframework.security.core.Authentication authentication) {
-        List<Sale> sales = saleRepository.findByMetodoPago(metodoPago);
-        return filterByAuthorizedLocales(sales, authentication);
-    }
-    
+
     /**
      * Obtiene ventas por vendedor.
      */
@@ -422,23 +432,21 @@ public class SaleService {
         
         int cantidadVentas = sales.size();
         
-        // Ventas por método de pago
-        Map<String, Long> ventasPorMetodo = sales.stream()
-                .collect(Collectors.groupingBy(Sale::getMetodoPago, Collectors.counting()));
-        
-        // Total por método de pago
-        Map<String, Double> totalPorMetodo = sales.stream()
-                .collect(Collectors.groupingBy(
-                    Sale::getMetodoPago,
-                    Collectors.summingDouble(Sale::getTotalCLP)
-                ));
+        // Total por método de pago (suma de todos los pagos de cada tipo)
+        Map<String, Double> totalPorMetodo = new HashMap<>();
+        for (Sale sale : sales) {
+            if (sale.getPagos() != null) {
+                for (Pago pago : sale.getPagos()) {
+                    totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+                }
+            }
+        }
         
         Map<String, Object> stats = new HashMap<>();
         stats.put("periodo", String.format("%d-%02d", year, month));
         stats.put("totalVentas", totalVentas);
         stats.put("cantidadVentas", cantidadVentas);
         stats.put("promedioVenta", cantidadVentas > 0 ? totalVentas / cantidadVentas : 0);
-        stats.put("ventasPorMetodo", ventasPorMetodo);
         stats.put("totalPorMetodo", totalPorMetodo);
         stats.put("ventas", sales);
         
@@ -472,16 +480,15 @@ public class SaleService {
         
         int cantidadVentas = sales.size();
         
-        // Ventas por método de pago
-        Map<String, Long> ventasPorMetodo = sales.stream()
-                .collect(Collectors.groupingBy(Sale::getMetodoPago, Collectors.counting()));
-        
-        // Total por método de pago
-        Map<String, Double> totalPorMetodo = sales.stream()
-                .collect(Collectors.groupingBy(
-                    Sale::getMetodoPago,
-                    Collectors.summingDouble(Sale::getTotalCLP)
-                ));
+        // Total por método de pago (suma de todos los pagos de cada tipo)
+        Map<String, Double> totalPorMetodo = new HashMap<>();
+        for (Sale sale : sales) {
+            if (sale.getPagos() != null) {
+                for (Pago pago : sale.getPagos()) {
+                    totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+                }
+            }
+        }
         
         Map<String, Object> stats = new HashMap<>();
         stats.put("fechaInicio", start);
@@ -489,7 +496,6 @@ public class SaleService {
         stats.put("totalVentas", totalVentas);
         stats.put("cantidadVentas", cantidadVentas);
         stats.put("promedioVenta", cantidadVentas > 0 ? totalVentas / cantidadVentas : 0);
-        stats.put("ventasPorMetodo", ventasPorMetodo);
         stats.put("totalPorMetodo", totalPorMetodo);
         
         return stats;
@@ -1039,8 +1045,21 @@ public class SaleService {
             sale.setTotalCLP(newTotal);
         }
         
+        // Actualizar métodos de pago
+        if (request.getPagos() != null && !request.getPagos().isEmpty()) {
+            validatePagos(request.getPagos());
+            validatePaymentTotal(request.getPagos(), sale.getTotalCLP());
+            
+            List<Pago> pagos = request.getPagos().stream()
+                    .map(pr -> Pago.builder()
+                            .formaDePago(pr.getFormaDePago())
+                            .monto(pr.getMonto())
+                            .build())
+                    .collect(Collectors.toList());
+            sale.setPagos(pagos);
+        }
+        
         // Actualizar otros campos
-        sale.setMetodoPago(request.getMetodoPago());
         sale.setClienteNombre(request.getClienteNombre());
         sale.setClienteDireccion(request.getClienteDireccion());
         sale.setClienteCorreo(request.getClienteCorreo());
@@ -1109,28 +1128,46 @@ public class SaleService {
     }
 
     /**
-     * Actualizar solo el método de pago de una venta
-     * Permite actualizar incluso ventas cerradas o entregadas
+     * Valida que todos los pagos tengan una forma de pago válida.
      */
-    @Transactional
-    public Sale updatePaymentMethod(String saleId, String metodoPago) {
-        Sale sale = saleRepository.findById(saleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Venta no encontrada con ID: " + saleId));
-        
-        // Validar que el método de pago sea válido
-        if (metodoPago == null || metodoPago.isEmpty()) {
-            throw new BadRequestException("El método de pago no puede estar vacío");
+    private void validatePagos(List<PagoRequest> pagos) {
+        if (pagos == null || pagos.isEmpty()) {
+            throw new BadRequestException("Debe incluir al menos un método de pago");
         }
         
-        // Validar que sea uno de los métodos permitidos
-        List<String> metodosValidos = Arrays.asList("EFECTIVO", "TRANSFERENCIA", "DEBITO", "CREDITO");
-        if (!metodosValidos.contains(metodoPago)) {
-            throw new BadRequestException("Método de pago inválido: " + metodoPago + ". Debe ser uno de: " + metodosValidos);
+        Set<String> metodosValidos = Set.of("EFECTIVO", "TRANSFERENCIA", "DEBITO", "CREDITO");
+        
+        for (PagoRequest pago : pagos) {
+            if (pago.getFormaDePago() == null || pago.getFormaDePago().isEmpty()) {
+                throw new BadRequestException("La forma de pago no puede estar vacía");
+            }
+            
+            if (!metodosValidos.contains(pago.getFormaDePago())) {
+                throw new BadRequestException("Forma de pago inválida: " + pago.getFormaDePago() + 
+                    ". Debe ser uno de: EFECTIVO, TRANSFERENCIA, DEBITO, CREDITO");
+            }
+            
+            if (pago.getMonto() == null || pago.getMonto() <= 0) {
+                throw new BadRequestException("El monto de cada pago debe ser mayor a 0");
+            }
         }
+    }
+    
+    /**
+     * Valida que la suma de los pagos sea igual al total de la venta.
+     */
+    private void validatePaymentTotal(List<PagoRequest> pagos, double total) {
+        double sumaPagos = pagos.stream()
+                .mapToDouble(PagoRequest::getMonto)
+                .sum();
         
-        // Actualizar el método de pago
-        sale.setMetodoPago(metodoPago);
-        
-        return saleRepository.save(sale);
+        // Usar una tolerancia para comparar doubles (0.01 CLP)
+        double tolerance = 0.01;
+        if (Math.abs(sumaPagos - total) > tolerance) {
+            throw new BadRequestException(
+                String.format("La suma de los pagos ($%,.0f) debe ser igual al total de la venta ($%,.0f)", 
+                    sumaPagos, total)
+            );
+        }
     }
 }

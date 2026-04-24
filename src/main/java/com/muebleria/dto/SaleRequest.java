@@ -16,12 +16,9 @@ public class SaleRequest {
     @Valid
     private List<SaleItemRequest> items;
     
-    @NotBlank(message = "El método de pago es requerido")
-    @Pattern(
-        regexp = "EFECTIVO|TRANSFERENCIA|DEBITO|CREDITO",
-        message = "Método de pago debe ser: EFECTIVO, TRANSFERENCIA, DEBITO o CREDITO"
-    )
-    private String metodoPago;
+    @NotEmpty(message = "Debe incluir al menos un método de pago")
+    @Valid
+    private List<PagoRequest> pagos;
     
     // Datos del cliente
     @NotBlank(message = "El nombre del cliente es requerido")
