@@ -47,9 +47,13 @@ public class SaleRequest {
     private String tipoEntrega;
     
     // Fecha programada para el despacho (solo si tipoEntrega = DESPACHO)
-    // Formato: ISO 8601 (yyyy-MM-dd'T'HH:mm:ss)
+    // Formato: ISO 8601 (yyyy-MM-dd)
     private String fechaDespacho;
-    
+
+    // Monto del flete (opcional, puede ser 0)
+    // Requerido cuando tipoEntrega = DESPACHO
+    private Double montoFlete;
+
     // Local/Sucursal donde se realiza la venta (ID de LocalEntity)
     @NotBlank(message = "El local es requerido")
     private String local;

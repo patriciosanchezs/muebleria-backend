@@ -8,6 +8,7 @@ import com.muebleria.exception.ResourceNotFoundException;
 import com.muebleria.model.CanalVenta;
 import com.muebleria.model.Pago;
 import com.muebleria.model.Product;
+import com.muebleria.model.Role;
 import com.muebleria.model.Sale;
 import com.muebleria.model.SaleItem;
 import com.muebleria.model.User;
@@ -70,7 +71,12 @@ public class SaleService {
         // Obtener usuario actual (quien registra la venta) para registrar quien aplicó descuentos
         User currentUser = userRepository.findByUsername(vendedor)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
-        
+
+        // Validar que si es DESPACHO, el monto del flete esté presente (puede ser 0)
+        if ("DESPACHO".equals(request.getTipoEntrega()) && request.getMontoFlete() == null) {
+            throw new BadRequestException("El monto del flete es requerido para despachos a domicilio");
+        }
+
         // 3. Crear items de la venta y calcular total
         List<SaleItem> saleItems = new ArrayList<>();
         double totalCLP = 0.0;
@@ -116,7 +122,12 @@ public class SaleService {
             saleItems.add(saleItem);
             totalCLP += subtotal;
         }
-        
+
+        // Agregar monto del flete al total si existe
+        if (request.getMontoFlete() != null) {
+            totalCLP += request.getMontoFlete();
+        }
+
         // 4. Validar que la suma de pagos sea igual al total
         validatePaymentTotal(request.getPagos(), totalCLP);
         
@@ -170,6 +181,10 @@ public class SaleService {
                 saleBuilder.fechaDespacho(
                     java.time.LocalDate.parse(request.getFechaDespacho()).atStartOfDay()
                 );
+            }
+            // Guardar monto del flete (puede ser 0)
+            if (request.getMontoFlete() != null) {
+                saleBuilder.montoFlete(request.getMontoFlete());
             }
         }
         
@@ -896,16 +911,34 @@ public class SaleService {
     
     /**
      * Obtiene ventas aprobadas filtradas por locales del usuario.
+     * - ADMINISTRADOR: Ve todas las ventas aprobadas
+     * - ADMIN_LOCAL, ENCARGADO_LOCAL: Ve ventas aprobadas de sus locales
+     * - VENDEDOR, VENDEDOR_SIN_COMISION: Ve solo sus propias ventas aprobadas (donde fueron asignados como vendedor)
      */
     public List<Sale> getApprovedSales(org.springframework.security.core.Authentication authentication) {
         List<Sale> approvedSales = saleRepository.findByEstadoAprobacion("APROBADA");
-        
-        // Filtrar por locales del usuario autenticado
-        List<String> userLocales = authHelper.getUserLocales(authentication);
-        if (authHelper.isAdmin(authentication)) {
-            return approvedSales; // Admin ve todas
+
+        // Obtener el usuario autenticado
+        User user = authHelper.getAuthenticatedUser(authentication);
+        if (user == null) {
+            return List.of();
         }
-        
+
+        // ADMINISTRADOR ve todas las ventas aprobadas
+        if (user.getRole() == Role.ADMINISTRADOR) {
+            return approvedSales;
+        }
+
+        // VENDEDOR y VENDEDOR_SIN_COMISION: solo ven sus propias ventas
+        if (user.getRole() == Role.VENDEDOR || user.getRole() == Role.VENDEDOR_SIN_COMISION) {
+            String username = user.getUsername();
+            return approvedSales.stream()
+                    .filter(sale -> username.equals(sale.getVendedor()))
+                    .collect(Collectors.toList());
+        }
+
+        // ADMIN_LOCAL, ENCARGADO_LOCAL: ven ventas de sus locales asignados
+        List<String> userLocales = authHelper.getUserLocales(authentication);
         return approvedSales.stream()
                 .filter(sale -> userLocales.contains(sale.getLocalId()))
                 .collect(Collectors.toList());
@@ -959,10 +992,38 @@ public class SaleService {
         sale.setAprobadoPor(rejectedBy);
         sale.setFechaAprobacion(LocalDateTime.now());
         sale.setMotivoRechazo(motivo);
-        
+
         return saleRepository.save(sale);
     }
-    
+
+    /**
+     * Elimina una venta del sistema. Solo permitido para ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL.
+     * Si la venta fue aprobada, devuelve el stock de los productos al local.
+     */
+    @Transactional
+    public void deleteSale(String saleId, org.springframework.security.core.Authentication authentication) {
+        Sale sale = getSaleById(saleId);
+
+        // Validar Roles: Administrador, Admin Local o Encargado Local
+        User user = authHelper.getAuthenticatedUser(authentication);
+        if (user == null || !(user.getRole() == Role.ADMINISTRADOR ||
+                               user.getRole() == Role.ADMIN_LOCAL ||
+                               user.getRole() == Role.ENCARGADO_LOCAL)) {
+            throw new BadRequestException("No tiene permisos suficientes para eliminar esta venta");
+        }
+
+        // Si la venta estaba APROBADA, devolver el stock al local
+        if ("APROBADA".equals(sale.getEstadoAprobacion())) {
+            for (SaleItem item : sale.getItems()) {
+                productService.increaseStock(item.getProductId(), sale.getLocalId(), item.getCantidad());
+            }
+            // Eliminar comisión asociada si existe
+            commissionService.deleteCommissionBySaleId(saleId);
+        }
+
+        saleRepository.deleteById(saleId);
+    }
+
     /**
      * Actualiza una venta existente (solo ciertos campos).
      * Solo se pueden actualizar: items, metodoPago, información del cliente y fecha de despacho.

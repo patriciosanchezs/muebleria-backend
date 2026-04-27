@@ -328,7 +328,19 @@ public class SaleController {
         Sale rejectedSale = saleService.rejectSale(id, rejectedBy, reason);
         return ResponseEntity.ok(rejectedSale);
     }
-    
+
+    /**
+     * Elimina una venta (ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL)
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
+    public ResponseEntity<Void> deleteSale(
+            @PathVariable String id,
+            Authentication authentication) {
+        saleService.deleteSale(id, authentication);
+        return ResponseEntity.noContent().build();
+    }
+
     /**
      * Obtener lista de vendedores únicos (ADMINISTRADOR y ADMIN_LOCAL)
      */
