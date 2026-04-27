@@ -450,9 +450,23 @@ public class SaleService {
         // Total por método de pago (suma de todos los pagos de cada tipo)
         Map<String, Double> totalPorMetodo = new HashMap<>();
         for (Sale sale : sales) {
-            if (sale.getPagos() != null) {
+            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
                 for (Pago pago : sale.getPagos()) {
-                    totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
+                        totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+                    }
+                }
+            }
+        }
+        
+        // Contar cantidad de ventas por método de pago
+        Map<String, Integer> ventasPorMetodo = new HashMap<>();
+        for (Sale sale : sales) {
+            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
+                for (Pago pago : sale.getPagos()) {
+                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
+                        ventasPorMetodo.merge(pago.getFormaDePago(), 1, Integer::sum);
+                    }
                 }
             }
         }
@@ -463,6 +477,7 @@ public class SaleService {
         stats.put("cantidadVentas", cantidadVentas);
         stats.put("promedioVenta", cantidadVentas > 0 ? totalVentas / cantidadVentas : 0);
         stats.put("totalPorMetodo", totalPorMetodo);
+        stats.put("ventasPorMetodo", ventasPorMetodo);
         stats.put("ventas", sales);
         
         return stats;
@@ -498,9 +513,23 @@ public class SaleService {
         // Total por método de pago (suma de todos los pagos de cada tipo)
         Map<String, Double> totalPorMetodo = new HashMap<>();
         for (Sale sale : sales) {
-            if (sale.getPagos() != null) {
+            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
                 for (Pago pago : sale.getPagos()) {
-                    totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
+                        totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+                    }
+                }
+            }
+        }
+        
+        // Contar cantidad de ventas por método de pago
+        Map<String, Integer> ventasPorMetodo = new HashMap<>();
+        for (Sale sale : sales) {
+            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
+                for (Pago pago : sale.getPagos()) {
+                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
+                        ventasPorMetodo.merge(pago.getFormaDePago(), 1, Integer::sum);
+                    }
                 }
             }
         }
@@ -512,6 +541,7 @@ public class SaleService {
         stats.put("cantidadVentas", cantidadVentas);
         stats.put("promedioVenta", cantidadVentas > 0 ? totalVentas / cantidadVentas : 0);
         stats.put("totalPorMetodo", totalPorMetodo);
+        stats.put("ventasPorMetodo", ventasPorMetodo);
         
         return stats;
     }
