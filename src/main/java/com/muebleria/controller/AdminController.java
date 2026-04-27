@@ -36,6 +36,8 @@ public class AdminController {
     public ResponseEntity<?> createUser(
             @Valid @RequestBody CreateUserRequest request,
             @AuthenticationPrincipal UserDetails currentUser) {
+
+        request.setUsername(request.getUsername().toLowerCase());
         
         // Verificar que el username no exista
         if (userRepository.findByUsername(request.getUsername()).isPresent()) {

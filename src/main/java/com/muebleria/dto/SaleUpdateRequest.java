@@ -21,8 +21,8 @@ public class SaleUpdateRequest {
     @NotEmpty(message = "La venta debe tener al menos un producto")
     private List<SaleItemRequest> items;
     
-    @NotBlank(message = "El método de pago es obligatorio")
-    private String metodoPago;
+    @NotEmpty(message = "Debe incluir al menos un método de pago")
+    private List<PagoRequest> pagos;
     
     @NotBlank(message = "El nombre del cliente es obligatorio")
     private String clienteNombre;

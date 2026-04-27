@@ -25,8 +25,8 @@ public class Sale {
     // Total en pesos chilenos (CLP)
     private Double totalCLP;
     
-    // Método de pago: EFECTIVO, TRANSFERENCIA, DEBITO, CREDITO
-    private String metodoPago;
+    // Métodos de pago utilizados (puede ser uno o varios)
+    private List<Pago> pagos;
     
     @Builder.Default
     private LocalDateTime fechaVenta = LocalDateTime.now();

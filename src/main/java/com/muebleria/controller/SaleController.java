@@ -87,17 +87,6 @@ public class SaleController {
     }
     
     /**
-     * Obtener ventas por método de pago (ADMINISTRADOR o ADMIN_LOCAL)
-     * Ejemplo: /sales/by-payment?method=EFECTIVO
-     */
-    @GetMapping("/by-payment")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
-    public ResponseEntity<List<Sale>> getSalesByPaymentMethod(@RequestParam String method, Authentication authentication) {
-        List<Sale> sales = saleService.getSalesByPaymentMethod(method, authentication);
-        return ResponseEntity.ok(sales);
-    }
-    
-    /**
      * Obtener ventas por vendedor (ADMINISTRADOR o ADMIN_LOCAL)
      * Ejemplo: /sales/by-seller?name=juan
      */
@@ -339,7 +328,19 @@ public class SaleController {
         Sale rejectedSale = saleService.rejectSale(id, rejectedBy, reason);
         return ResponseEntity.ok(rejectedSale);
     }
-    
+
+    /**
+     * Elimina una venta (ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL)
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
+    public ResponseEntity<Void> deleteSale(
+            @PathVariable String id,
+            Authentication authentication) {
+        saleService.deleteSale(id, authentication);
+        return ResponseEntity.noContent().build();
+    }
+
     /**
      * Obtener lista de vendedores únicos (ADMINISTRADOR y ADMIN_LOCAL)
      */
@@ -361,23 +362,6 @@ public class SaleController {
             @Valid @RequestBody com.muebleria.dto.SaleUpdateRequest request,
             Authentication authentication) {
         Sale updatedSale = saleService.updateSale(id, request, authentication);
-        return ResponseEntity.ok(updatedSale);
-    }
-
-    /**
-     * Actualizar método de pago de una venta (incluso si está cerrada)
-     * Solo ADMINISTRADOR y ADMIN_LOCAL
-     */
-    @PatchMapping("/{id}/payment-method")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL')")
-    public ResponseEntity<Sale> updatePaymentMethod(
-            @PathVariable String id,
-            @RequestBody Map<String, String> request) {
-        String metodoPago = request.get("metodoPago");
-        if (metodoPago == null || metodoPago.isEmpty()) {
-            return ResponseEntity.badRequest().build();
-        }
-        Sale updatedSale = saleService.updatePaymentMethod(id, metodoPago);
         return ResponseEntity.ok(updatedSale);
     }
 }

@@ -16,27 +16,24 @@ public class SaleRequest {
     @Valid
     private List<SaleItemRequest> items;
     
-    @NotBlank(message = "El método de pago es requerido")
-    @Pattern(
-        regexp = "EFECTIVO|TRANSFERENCIA|DEBITO|CREDITO",
-        message = "Método de pago debe ser: EFECTIVO, TRANSFERENCIA, DEBITO o CREDITO"
-    )
-    private String metodoPago;
+    @NotEmpty(message = "Debe incluir al menos un método de pago")
+    @Valid
+    private List<PagoRequest> pagos;
     
     // Datos del cliente
     @NotBlank(message = "El nombre del cliente es requerido")
     private String clienteNombre;
     
-    @NotBlank(message = "La dirección del cliente es requerida")
+    // Cliente dirección - requerido solo para DESPACHO
     private String clienteDireccion;
     
+    // Cliente correo - requerido solo para DESPACHO
     @Email(message = "El correo del cliente debe ser válido")
-    @NotBlank(message = "El correo del cliente es requerido")
     private String clienteCorreo;
     
-    @NotBlank(message = "El teléfono del cliente es requerido")
+    // Cliente teléfono - requerido solo para DESPACHO
     @Pattern(
-        regexp = "^\\+?[0-9]{8,15}$",
+        regexp = "^$|^\\+?[0-9]{8,15}$",
         message = "El teléfono debe tener entre 8 y 15 dígitos"
     )
     private String clienteTelefono;
@@ -50,9 +47,13 @@ public class SaleRequest {
     private String tipoEntrega;
     
     // Fecha programada para el despacho (solo si tipoEntrega = DESPACHO)
-    // Formato: ISO 8601 (yyyy-MM-dd'T'HH:mm:ss)
+    // Formato: ISO 8601 (yyyy-MM-dd)
     private String fechaDespacho;
-    
+
+    // Monto del flete (opcional, puede ser 0)
+    // Requerido cuando tipoEntrega = DESPACHO
+    private Double montoFlete;
+
     // Local/Sucursal donde se realiza la venta (ID de LocalEntity)
     @NotBlank(message = "El local es requerido")
     private String local;
