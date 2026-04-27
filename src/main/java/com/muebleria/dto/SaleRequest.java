@@ -24,16 +24,16 @@ public class SaleRequest {
     @NotBlank(message = "El nombre del cliente es requerido")
     private String clienteNombre;
     
-    @NotBlank(message = "La dirección del cliente es requerida")
+    // Cliente dirección - requerido solo para DESPACHO
     private String clienteDireccion;
     
+    // Cliente correo - requerido solo para DESPACHO
     @Email(message = "El correo del cliente debe ser válido")
-    @NotBlank(message = "El correo del cliente es requerido")
     private String clienteCorreo;
     
-    @NotBlank(message = "El teléfono del cliente es requerido")
+    // Cliente teléfono - requerido solo para DESPACHO
     @Pattern(
-        regexp = "^\\+?[0-9]{8,15}$",
+        regexp = "^$|^\\+?[0-9]{8,15}$",
         message = "El teléfono debe tener entre 8 y 15 dígitos"
     )
     private String clienteTelefono;

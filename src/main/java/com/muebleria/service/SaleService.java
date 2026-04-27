@@ -76,6 +76,19 @@ public class SaleService {
         if ("DESPACHO".equals(request.getTipoEntrega()) && request.getMontoFlete() == null) {
             throw new BadRequestException("El monto del flete es requerido para despachos a domicilio");
         }
+        
+        // Validar datos del cliente para DESPACHO
+        if ("DESPACHO".equals(request.getTipoEntrega())) {
+            if (request.getClienteTelefono() == null || request.getClienteTelefono().isEmpty()) {
+                throw new BadRequestException("El teléfono del cliente es requerido para despachos a domicilio");
+            }
+            if (request.getClienteDireccion() == null || request.getClienteDireccion().isEmpty()) {
+                throw new BadRequestException("La dirección del cliente es requerida para despachos a domicilio");
+            }
+            if (request.getClienteCorreo() == null || request.getClienteCorreo().isEmpty()) {
+                throw new BadRequestException("El correo del cliente es requerido para despachos a domicilio");
+            }
+        }
 
         // 3. Crear items de la venta y calcular total
         List<SaleItem> saleItems = new ArrayList<>();
