@@ -71,4 +71,7 @@ public class SaleRequest {
     private String vendedorAsignado;
     
     private String notas;
+
+    // Tipo de venta: NORMAL o ENCARGO
+    private String tipoVenta;
 }

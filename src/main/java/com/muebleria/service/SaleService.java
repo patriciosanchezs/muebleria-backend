@@ -1,5 +1,6 @@
 package com.muebleria.service;
 
+import com.muebleria.dto.AbonoRequest;
 import com.muebleria.dto.PagoRequest;
 import com.muebleria.dto.SaleItemRequest;
 import com.muebleria.dto.SaleRequest;
@@ -37,6 +38,7 @@ public class SaleService {
     
     /**
      * Crea una nueva venta, valida stock por local y descuenta productos del local correcto.
+     * Soporta ventas normales y encargos.
      */
     @Transactional
     public Sale createSale(SaleRequest request, String vendedor) {
@@ -44,11 +46,11 @@ public class SaleService {
         if (request.getLocal() == null || request.getLocal().isEmpty()) {
             throw new BadRequestException("Debe especificar el local de la venta");
         }
-        
+
         // Validar que el local ID existe y está activo
         localService.validateActiveLocalId(request.getLocal());
         String localId = request.getLocal();
-        
+
         // Validar y convertir canal de venta
         CanalVenta canalVenta;
         try {
@@ -56,21 +58,37 @@ public class SaleService {
         } catch (IllegalArgumentException e) {
             throw new BadRequestException("Canal de venta inválido: " + request.getCanalVenta());
         }
-        
-        // 2. Validar que todos los productos tengan stock suficiente en el local especificado
-        validateStockByLocal(request.getItems(), localId);
-        
-        // 3. Validar pagos
-        validatePagos(request.getPagos());
-        
-        // Determinar el dueño de la venta: vendedor asignado o usuario de sesión
-        String vendedorFinal = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty() 
-                ? request.getVendedorAsignado() 
-                : vendedor;
-        
-        // Obtener usuario actual (quien registra la venta) para registrar quien aplicó descuentos
+
+        // Determinar si es un encargo
+        boolean esEncargo = "ENCARGO".equals(request.getTipoVenta());
+
+        // Si es encargo, validar que el usuario tenga los roles permitidos
         User currentUser = userRepository.findByUsername(vendedor)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+
+        if (esEncargo) {
+            boolean rolPermitido = currentUser.getRole() == Role.ADMINISTRADOR ||
+                                   currentUser.getRole() == Role.ADMIN_LOCAL ||
+                                   currentUser.getRole() == Role.ENCARGADO_LOCAL;
+            if (!rolPermitido) {
+                throw new BadRequestException("Solo ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL pueden crear encargos");
+            }
+        }
+
+        // 2. Validar que todos los productos tengan stock suficiente en el local especificado (solo para ventas normales)
+        if (!esEncargo) {
+            validateStockByLocal(request.getItems(), localId);
+        }
+
+        // 3. Validar pagos
+        validatePagos(request.getPagos());
+
+        // Determinar el dueño de la venta: vendedor asignado o usuario de sesión
+        String vendedorFinal = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()
+                ? request.getVendedorAsignado()
+                : vendedor;
+
+        // Obtener usuario actual (quien registra la venta) para registrar quien aplicó descuentos
 
         // Validar que si es DESPACHO, el monto del flete esté presente (puede ser 0)
         if ("DESPACHO".equals(request.getTipoEntrega()) && request.getMontoFlete() == null) {
@@ -84,9 +102,6 @@ public class SaleService {
             }
             if (request.getClienteDireccion() == null || request.getClienteDireccion().isEmpty()) {
                 throw new BadRequestException("La dirección del cliente es requerida para despachos a domicilio");
-            }
-            if (request.getClienteCorreo() == null || request.getClienteCorreo().isEmpty()) {
-                throw new BadRequestException("El correo del cliente es requerido para despachos a domicilio");
             }
         }
 
@@ -141,8 +156,10 @@ public class SaleService {
             totalCLP += request.getMontoFlete();
         }
 
-        // 4. Validar que la suma de pagos sea igual al total
-        validatePaymentTotal(request.getPagos(), totalCLP);
+        // 4. Validar que la suma de pagos sea igual al total (solo para ventas normales)
+        if (!esEncargo) {
+            validatePaymentTotal(request.getPagos(), totalCLP);
+        }
         
         // 5. Convertir PagoRequest a Pago
         List<Pago> pagos = request.getPagos().stream()
@@ -166,7 +183,16 @@ public class SaleService {
                 .localId(localId)
                 .canalVenta(canalVenta)
                 .notas(request.getNotas())
-                .fechaVenta(LocalDateTime.now());
+                .fechaVenta(LocalDateTime.now())
+                .tipoVenta(esEncargo ? "ENCARGO" : "NORMAL");
+
+        // Campos para encargos
+        if (esEncargo) {
+            double totalAbonado = pagos.stream().mapToDouble(Pago::getMonto).sum();
+            saleBuilder.totalAbonado(totalAbonado);
+            saleBuilder.saldoPendiente(totalCLP - totalAbonado);
+            saleBuilder.estadoPago(totalAbonado >= totalCLP ? "PAGADO_COMPLETO" : (totalAbonado > 0 ? "ABONADO_PARCIAL" : "PENDIENTE"));
+        }
         
         // Determinar estado de aprobación según el rol de QUIEN REGISTRA la venta (no del vendedor asignado)
         // Si quien registra es ADMIN, ADMIN_LOCAL o ENCARGADO_LOCAL → APROBADA automáticamente
@@ -204,50 +230,50 @@ public class SaleService {
         Sale sale = saleBuilder.build();
         
         Sale savedSale = saleRepository.save(sale);
-        
-        // 5. Descontar stock solo si la venta está APROBADA
-        // Para ventas pendientes, el stock se descuenta al aprobar
-        if ("APROBADA".equals(savedSale.getEstadoAprobacion())) {
+
+        // 5. Descontar stock solo si la venta está APROBADA y NO es encargo
+        // Para encargos, el stock se descuenta cuando se pague completo
+        if ("APROBADA".equals(savedSale.getEstadoAprobacion()) && !esEncargo) {
             for (SaleItemRequest itemRequest : request.getItems()) {
                 productService.decreaseStock(itemRequest.getProductId(), localId, itemRequest.getCantidad());
             }
         }
-        
-        // 6. Crear comisión solo si la venta está APROBADA
-        // Para vendedores y encargados locales, la comisión se crea al aprobar la venta
-        if ("APROBADA".equals(savedSale.getEstadoAprobacion())) {
+
+        // 6. Crear comisión solo si la venta está APROBADA o es un encargo
+        // Para encargos, la comisión se genera al crear el encargo (según requerimiento)
+        if ("APROBADA".equals(savedSale.getEstadoAprobacion()) || esEncargo) {
             try {
                 // Determinar quién recibe la comisión de vendedor
                 String vendedorParaComision = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()
                         ? request.getVendedorAsignado()  // Si hay vendedor asignado, usar ese
                         : vendedor;  // Si no, usar quien registró la venta
-                
+
                 // Validar que el vendedor para comisión exista y sea VENDEDOR o ENCARGADO_LOCAL
                 User comissionUser = userRepository.findByUsername(vendedorParaComision).orElse(null);
-                
+
                 // Crear comisión solo si:
                 // 1. Hay un vendedor asignado explícitamente, O
                 // 2. Quien registra la venta es VENDEDOR o ENCARGADO_LOCAL (sin asignación)
                 boolean shouldCreateCommission = false;
-                
+
                 if (request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()) {
                     // Caso 1: Hay vendedor asignado - crear comisión solo si es VENDEDOR o ENCARGADO_LOCAL (NO para VENDEDOR_SIN_COMISION)
-                    if (comissionUser != null && 
+                    if (comissionUser != null &&
                         ("VENDEDOR".equals(comissionUser.getRole().name()) || "ENCARGADO_LOCAL".equals(comissionUser.getRole().name()))) {
                         shouldCreateCommission = true;
                     }
                 } else {
                     // Caso 2: No hay vendedor asignado - crear comisión solo si quien registra es VENDEDOR o ENCARGADO_LOCAL (NO para VENDEDOR_SIN_COMISION)
-                    if (currentUser != null && 
+                    if (currentUser != null &&
                         ("VENDEDOR".equals(currentUser.getRole().name()) || "ENCARGADO_LOCAL".equals(currentUser.getRole().name()))) {
                         shouldCreateCommission = true;
                     }
                 }
-                
+
                 if (shouldCreateCommission && comissionUser != null) {
                     commissionService.createCommission(savedSale, vendedorParaComision);
                 }
-                
+
                 // Crear comisiones para todos los ADMIN_LOCAL que tienen comisión habilitada en este local
                 createAdminLocalCommissions(savedSale);
             } catch (Exception e) {
@@ -1040,6 +1066,124 @@ public class SaleService {
     }
 
     /**
+     * Registra un abono en un encargo.
+     * Solo ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL pueden registrar abonos.
+     */
+    @Transactional
+    public Sale abonarEncargo(String saleId, AbonoRequest abonoRequest, String registradoPor) {
+        Sale sale = getSaleById(saleId);
+
+        // Validar que sea un encargo
+        if (!"ENCARGO".equals(sale.getTipoVenta())) {
+            throw new BadRequestException("Esta venta no es un encargo");
+        }
+
+        // Validar que no esté cancelado
+        if ("CANCELADO".equals(sale.getEstadoPago())) {
+            throw new BadRequestException("No se puede abonar a un encargo cancelado");
+        }
+
+        // Validar que no esté pagado completo
+        if ("PAGADO_COMPLETO".equals(sale.getEstadoPago())) {
+            throw new BadRequestException("El encargo ya está pagado completamente");
+        }
+
+        // Validar el abono
+        if (abonoRequest.getMonto() == null || abonoRequest.getMonto() <= 0) {
+            throw new BadRequestException("El monto del abono debe ser mayor a 0");
+        }
+
+        Set<String> metodosValidos = Set.of("EFECTIVO", "TRANSFERENCIA", "DEBITO", "CREDITO");
+        if (!metodosValidos.contains(abonoRequest.getFormaDePago())) {
+            throw new BadRequestException("Forma de pago inválida: " + abonoRequest.getFormaDePago());
+        }
+
+        // Calcular nuevo abono
+        double nuevoAbono = abonoRequest.getMonto();
+        double totalAbonadoActual = sale.getTotalAbonado() != null ? sale.getTotalAbonado() : 0.0;
+        double nuevoTotalAbonado = totalAbonadoActual + nuevoAbono;
+
+        // Validar que no exceda el total
+        if (nuevoTotalAbonado > sale.getTotalCLP()) {
+            throw new BadRequestException(
+                String.format("El abono excede el saldo pendiente. Saldo pendiente: $%,.0f", 
+                    sale.getTotalCLP() - totalAbonadoActual)
+            );
+        }
+
+        // Crear nuevo pago
+        Pago nuevoPago = Pago.builder()
+                .formaDePago(abonoRequest.getFormaDePago())
+                .monto(nuevoAbono)
+                .build();
+
+        // Agregar a la lista de pagos
+        List<Pago> pagos = sale.getPagos();
+        if (pagos == null) {
+            pagos = new ArrayList<>();
+        }
+        pagos.add(nuevoPago);
+        sale.setPagos(pagos);
+
+        // Actualizar total abonado y saldo pendiente
+        sale.setTotalAbonado(nuevoTotalAbonado);
+        sale.setSaldoPendiente(sale.getTotalCLP() - nuevoTotalAbonado);
+
+        // Actualizar estado de pago
+        if (nuevoTotalAbonado >= sale.getTotalCLP()) {
+            sale.setEstadoPago("PAGADO_COMPLETO");
+            // Descontar stock cuando se paga completo
+            for (SaleItem item : sale.getItems()) {
+                productService.decreaseStock(item.getProductId(), sale.getLocalId(), item.getCantidad());
+            }
+        } else if (nuevoTotalAbonado > 0) {
+            sale.setEstadoPago("ABONADO_PARCIAL");
+        }
+
+        return saleRepository.save(sale);
+    }
+
+    /**
+     * Cancela un encargo y elimina la comisión generada.
+     * Solo ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL pueden cancelar.
+     * Registra la devolución en las notas.
+     */
+    @Transactional
+    public Sale cancelarEncargo(String saleId, String canceladoPor, String motivo) {
+        Sale sale = getSaleById(saleId);
+
+        // Validar que sea un encargo
+        if (!"ENCARGO".equals(sale.getTipoVenta())) {
+            throw new BadRequestException("Esta venta no es un encargo");
+        }
+
+        // Validar que no esté ya cancelado
+        if ("CANCELADO".equals(sale.getEstadoPago())) {
+            throw new BadRequestException("El encargo ya está cancelado");
+        }
+
+        // Cambiar estado a cancelado
+        sale.setEstadoPago("CANCELADO");
+
+        // Eliminar comisión si existe
+        try {
+            commissionService.deleteCommissionBySaleId(saleId);
+        } catch (Exception e) {
+            System.err.println("Error eliminando comisión: " + e.getMessage());
+        }
+
+        // Registrar en notas la devolución
+        String notaCancelacion = String.format(
+            "[CANCELADO] Fecha: %s | Por: %s | Motivo: %s | Total abonado: $%,.0f",
+            LocalDateTime.now(), canceladoPor, motivo, sale.getTotalAbonado() != null ? sale.getTotalAbonado() : 0.0
+        );
+        String notasActuales = sale.getNotas() != null ? sale.getNotas() : "";
+        sale.setNotas(notasActuales + "\n" + notaCancelacion);
+
+        return saleRepository.save(sale);
+    }
+
+    /**
      * Elimina una venta del sistema. Solo permitido para ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL.
      * Si la venta fue aprobada, devuelve el stock de los productos al local.
      */
@@ -1206,6 +1350,22 @@ public class SaleService {
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Obtiene todos los encargos (filtrados por locales autorizados)
+     */
+    public List<Sale> getAllEncargos(org.springframework.security.core.Authentication authentication) {
+        List<Sale> encargos = saleRepository.findByTipoVenta("ENCARGO");
+        return filterByAuthorizedLocales(encargos, authentication);
+    }
+
+    /**
+     * Obtiene encargos filtrados por estado de pago (filtrados por locales autorizados)
+     */
+    public List<Sale> getEncargosByEstadoPago(String estadoPago, org.springframework.security.core.Authentication authentication) {
+        List<Sale> encargos = saleRepository.findByTipoVentaAndEstadoPago("ENCARGO", estadoPago);
+        return filterByAuthorizedLocales(encargos, authentication);
     }
     
     /**

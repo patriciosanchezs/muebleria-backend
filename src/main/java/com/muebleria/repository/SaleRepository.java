@@ -27,6 +27,11 @@ public interface SaleRepository extends MongoRepository<Sale, String> {
     
     // Consultas para aprobación de ventas
     List<Sale> findByEstadoAprobacion(String estadoAprobacion);
-    
+
     List<Sale> findByEstadoAprobacionAndFechaVentaBetween(String estadoAprobacion, LocalDateTime start, LocalDateTime end);
+
+    // Consultas para encargos
+    List<Sale> findByTipoVenta(String tipoVenta);
+
+    List<Sale> findByTipoVentaAndEstadoPago(String tipoVenta, String estadoPago);
 }

@@ -25,7 +25,7 @@ public class CommissionController {
      * Obtener comisiones del vendedor/admin_local autenticado
      */
     @GetMapping("/my-commissions")
-    @PreAuthorize("hasAnyRole('VENDEDOR', 'ENCARGADO_LOCAL', 'ADMIN_LOCAL')")
+    @PreAuthorize("hasAnyRole('VENDEDOR_SIN_COMISION', 'VENDEDOR', 'ENCARGADO_LOCAL', 'ADMIN_LOCAL')")
     public ResponseEntity<List<Commission>> getMyCommissions(Authentication auth) {
         String identifier = auth.getName(); // Puede ser username o ID
         List<Commission> commissions = commissionService.getCommissionsByVendedor(identifier);
@@ -36,7 +36,7 @@ public class CommissionController {
      * Obtener comisiones del vendedor/admin_local autenticado en un periodo
      */
     @GetMapping("/my-commissions/period")
-    @PreAuthorize("hasAnyRole('VENDEDOR', 'ENCARGADO_LOCAL', 'ADMIN_LOCAL')")
+    @PreAuthorize("hasAnyRole('VENDEDOR_SIN_COMISION', 'VENDEDOR', 'ENCARGADO_LOCAL', 'ADMIN_LOCAL')")
     public ResponseEntity<Map<String, Object>> getMyCommissionsByPeriod(
             Authentication auth,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
