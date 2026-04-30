@@ -1371,6 +1371,38 @@ public class SaleService {
         List<Sale> encargos = saleRepository.findByTipoVentaAndEstadoPago("ENCARGO", estadoPago);
         return filterByAuthorizedLocales(encargos, authentication);
     }
+
+    /**
+     * Obtiene encargos con filtros opcionales (local, estado pago, nombre cliente)
+     * Excluye encargos cancelados
+     */
+    public List<Sale> getEncargosFiltered(String estadoPago, String localId, String clienteNombre, org.springframework.security.core.Authentication authentication) {
+        List<Sale> encargos;
+
+        if (estadoPago != null && localId != null && clienteNombre != null && !clienteNombre.isEmpty()) {
+            encargos = saleRepository.findByTipoVentaAndEstadoPagoAndLocalIdAndClienteNombreContainingIgnoreCase("ENCARGO", estadoPago, localId, clienteNombre);
+        } else if (estadoPago != null && localId != null) {
+            encargos = saleRepository.findByTipoVentaAndEstadoPagoAndLocalId("ENCARGO", estadoPago, localId);
+        } else if (estadoPago != null && clienteNombre != null && !clienteNombre.isEmpty()) {
+            encargos = saleRepository.findByTipoVentaAndEstadoPagoAndClienteNombreContainingIgnoreCase("ENCARGO", estadoPago, clienteNombre);
+        } else if (localId != null && clienteNombre != null && !clienteNombre.isEmpty()) {
+            encargos = saleRepository.findByTipoVentaAndLocalIdAndClienteNombreContainingIgnoreCase("ENCARGO", localId, clienteNombre);
+        } else if (estadoPago != null) {
+            encargos = saleRepository.findByTipoVentaAndEstadoPago("ENCARGO", estadoPago);
+        } else if (localId != null) {
+            encargos = saleRepository.findByTipoVentaAndLocalId("ENCARGO", localId);
+        } else if (clienteNombre != null && !clienteNombre.isEmpty()) {
+            encargos = saleRepository.findByTipoVentaAndClienteNombreContainingIgnoreCase("ENCARGO", clienteNombre);
+        } else {
+            encargos = saleRepository.findByTipoVenta("ENCARGO");
+        }
+
+        encargos = encargos.stream()
+            .filter(e -> !"CANCELADO".equals(e.getEstadoPago()))
+            .collect(Collectors.toList());
+
+        return filterByAuthorizedLocales(encargos, authentication);
+    }
     
     /**
      * Obtiene estadísticas de ventas para todos los meses de un año
