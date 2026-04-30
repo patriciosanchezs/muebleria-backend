@@ -33,6 +33,10 @@ public class Product {
     @Builder.Default
     private Integer stock = 0;
     
+    // Stock temporalmente reservado en ventas en curso
+    @Builder.Default
+    private Integer stockReservado = 0;
+    
     private String imageUrl;
     
     @Builder.Default
@@ -42,4 +46,11 @@ public class Product {
     
     @Builder.Default
     private boolean disponible = true;
+    
+    // Retorna stock disponible (stock - reservado)
+    public Integer getStockDisponible() {
+        int realStock = stock != null ? stock : 0;
+        int reservado = stockReservado != null ? stockReservado : 0;
+        return Math.max(0, realStock - reservado);
+    }
 }

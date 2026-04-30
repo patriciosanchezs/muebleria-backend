@@ -19,6 +19,8 @@ public class ProductResponse {
     private String categoria;
     private String local; // ID de LocalEntity
     private Integer stock;
+    private Integer stockReservado;
+    private Integer stockDisponible;
     private String imageUrl;
     private LocalDateTime fechaCreacion;
     private LocalDateTime fechaActualizacion;

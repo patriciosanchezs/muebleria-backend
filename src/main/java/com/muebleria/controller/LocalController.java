@@ -50,7 +50,7 @@ public class LocalController {
      * Solo ADMINISTRADOR puede ver locales inactivos
      */
     @GetMapping
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasAnyRole('ENCARGADO_LOCAL', 'ADMIN_LOCAL', 'ADMINISTRADOR')")
     public ResponseEntity<List<LocalResponse>> getAllLocales() {
         return ResponseEntity.ok(localService.getAllLocales());
     }

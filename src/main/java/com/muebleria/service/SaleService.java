@@ -161,7 +161,7 @@ public class SaleService {
             validatePaymentTotal(request.getPagos(), totalCLP);
         }
         
-        // 5. Convertir PagoRequest a Pago
+// 5. Convertir PagoRequest a Pago
         List<Pago> pagos = request.getPagos().stream()
                 .map(pr -> Pago.builder()
                         .formaDePago(pr.getFormaDePago())
@@ -235,7 +235,7 @@ public class SaleService {
         // Para encargos, el stock se descuenta cuando se pague completo
         if ("APROBADA".equals(savedSale.getEstadoAprobacion()) && !esEncargo) {
             for (SaleItemRequest itemRequest : request.getItems()) {
-                productService.decreaseStock(itemRequest.getProductId(), localId, itemRequest.getCantidad());
+                productService.confirmarReserva(itemRequest.getProductId(), localId, itemRequest.getCantidad());
             }
         }
 
@@ -1030,9 +1030,9 @@ public class SaleService {
         
         Sale approvedSale = saleRepository.save(sale);
         
-        // Descontar stock ahora que la venta fue aprobada
+        // Descontar stock ahora que la venta fue aprobada (confirma reserva + descuenta stock)
         for (SaleItem item : approvedSale.getItems()) {
-            productService.decreaseStock(item.getProductId(), approvedSale.getLocalId(), item.getCantidad());
+            productService.confirmarReserva(item.getProductId(), approvedSale.getLocalId(), item.getCantidad());
         }
         
         // Crear comisión ahora que la venta fue aprobada
@@ -1132,9 +1132,9 @@ public class SaleService {
         // Actualizar estado de pago
         if (nuevoTotalAbonado >= sale.getTotalCLP()) {
             sale.setEstadoPago("PAGADO_COMPLETO");
-            // Descontar stock cuando se paga completo
+            // Descontar stock cuando se paga completo (confirma reserva + descuenta stock)
             for (SaleItem item : sale.getItems()) {
-                productService.decreaseStock(item.getProductId(), sale.getLocalId(), item.getCantidad());
+                productService.confirmarReserva(item.getProductId(), sale.getLocalId(), item.getCantidad());
             }
         } else if (nuevoTotalAbonado > 0) {
             sale.setEstadoPago("ABONADO_PARCIAL");
@@ -1276,7 +1276,7 @@ public class SaleService {
             // Descontar el nuevo stock (solo si la venta ya fue aprobada)
             if ("APROBADA".equals(sale.getEstadoAprobacion())) {
                 for (SaleItem newItem : newItems) {
-                    productService.decreaseStock(newItem.getProductId(), saleLocal, newItem.getCantidad());
+                    productService.confirmarReserva(newItem.getProductId(), saleLocal, newItem.getCantidad());
                 }
                 
                 // Actualizar o recalcular comisión si es necesario
@@ -1354,9 +1354,13 @@ public class SaleService {
 
     /**
      * Obtiene todos los encargos (filtrados por locales autorizados)
+     * Excluye encargos cancelados para evitar que aparezcan en estadísticas
      */
     public List<Sale> getAllEncargos(org.springframework.security.core.Authentication authentication) {
         List<Sale> encargos = saleRepository.findByTipoVenta("ENCARGO");
+        encargos = encargos.stream()
+            .filter(e -> !"CANCELADO".equals(e.getEstadoPago()))
+            .collect(Collectors.toList());
         return filterByAuthorizedLocales(encargos, authentication);
     }
 

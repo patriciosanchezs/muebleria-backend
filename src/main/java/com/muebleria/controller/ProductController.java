@@ -102,4 +102,64 @@ public class ProductController {
         productService.deleteProduct(id);
         return ResponseEntity.noContent().build();
     }
+    
+    /**
+     * Reserva stock temporalmente para una venta en proceso
+     * Si esEncargo=true, no reserva stock realmente (para permitir ventas a crédito)
+     */
+    @PostMapping("/{id}/reservar")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
+    public ResponseEntity<Map<String, Object>> reservarStock(@PathVariable String id,
+                                                         @RequestParam String local,
+                                                         @RequestParam Integer cantidad,
+                                                         @RequestParam(required = false, defaultValue = "false") boolean esEncargo) {
+        boolean reservado = productService.reservarStock(id, local, cantidad, esEncargo);
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", reservado);
+        if (!reservado) {
+            response.put("message", "No hay stock disponible");
+        }
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Libera stock reservado previamente
+     */
+    @PostMapping("/{id}/liberar")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
+    public ResponseEntity<Map<String, Object>> liberarStock(@PathVariable String id,
+                                                            @RequestParam String local,
+                                                            @RequestParam Integer cantidad) {
+        productService.liberarStock(id, local, cantidad);
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Confirma la reserva y deduce del stock real
+     */
+    @PostMapping("/{id}/confirmar")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
+    public ResponseEntity<Map<String, Object>> confirmarReserva(@PathVariable String id,
+                                                                  @RequestParam String local,
+                                                                  @RequestParam Integer cantidad) {
+        productService.confirmarReserva(id, local, cantidad);
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Cancela todas las reservas de un producto
+     */
+    @PostMapping("/{id}/cancelar")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL', 'VENDEDOR', 'VENDEDOR_SIN_COMISION')")
+    public ResponseEntity<Map<String, Object>> cancelarReservas(@PathVariable String id,
+                                                           @RequestParam String local) {
+        productService.cancelarReservas(id, local);
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        return ResponseEntity.ok(response);
+    }
 }
