@@ -8,6 +8,7 @@ import com.muebleria.model.Product;
 import com.muebleria.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -143,6 +144,7 @@ public class ProductService {
     /**
      * Descuenta stock de un producto. Útil para ventas.
      */
+    @Transactional
     public void decreaseStock(String productId, String localId, Integer cantidad) {
         Product product = getProductById(productId);
         
@@ -177,6 +179,7 @@ public class ProductService {
      * Incrementa el stock de un producto.
      * Se usa al rechazar ventas pendientes para devolver el stock.
      */
+    @Transactional
     public void increaseStock(String productId, String localId, Integer cantidad) {
         Product product = getProductById(productId);
         
@@ -200,12 +203,156 @@ public class ProductService {
     }
     
     /**
+     * Reserva stock temporalmente para una venta en proceso.
+     * Si esEncargo=true, no reserva stock (permite vender sin stock disponible).
+     * @return true si la reserva fue exitosa, false si no hay stock suficiente
+     */
+    public boolean reservarStock(String productId, String localId, Integer cantidad, boolean esEncargo) {
+        // Si es encargo, no es necesario reservar stock
+        if (esEncargo) {
+            return true;
+        }
+        
+        Product product = getProductById(productId);
+        
+        if (!localId.equals(product.getLocalId())) {
+            throw new BadRequestException(
+                String.format("El producto '%s' no pertenece al local con ID %s", 
+                    product.getNombre(), localId)
+            );
+        }
+        
+        int stockActual = product.getStock() != null ? product.getStock() : 0;
+        int stockReservado = product.getStockReservado() != null ? product.getStockReservado() : 0;
+        int stockDisponible = stockActual - stockReservado;
+        
+        if (stockDisponible < cantidad) {
+            return false;
+        }
+        
+        product.setStockReservado(stockReservado + cantidad);
+        product.setFechaActualizacion(LocalDateTime.now());
+        productRepository.save(product);
+        
+        return true;
+    }
+    
+    /**
+     * Reserva stock temporalmente para una venta en proceso.
+     * @return true si la reserva fue exitosa, false si no hay stock suficiente
+     * @deprecated Usar reservarStock(productId, localId, cantidad, esEncargo) en su lugar
+     */
+    public boolean reservarStock(String productId, String localId, Integer cantidad) {
+        return reservarStock(productId, localId, cantidad, false);
+    }
+    
+    /**
+     * Libera stock reservado previamente.
+     */
+    public void liberarStock(String productId, String localId, Integer cantidad) {
+        Product product = getProductById(productId);
+        
+        if (!localId.equals(product.getLocalId())) {
+            throw new BadRequestException(
+                String.format("El producto '%s' no pertenece al local con ID %s", 
+                    product.getNombre(), localId)
+            );
+        }
+        
+        int stockReservado = product.getStockReservado() != null ? product.getStockReservado() : 0;
+        if (stockReservado <= 0) {
+            return;
+        }
+        
+        int cantidadReal = Math.min(cantidad, stockReservado);
+        product.setStockReservado(stockReservado - cantidadReal);
+        product.setFechaActualizacion(LocalDateTime.now());
+        productRepository.save(product);
+    }
+    
+    /**
+     * Confirma la reserva y deduce del stock real.
+     */
+    public void confirmarReserva(String productId, String localId, Integer cantidad) {
+        Product product = getProductById(productId);
+        
+        if (!localId.equals(product.getLocalId())) {
+            throw new BadRequestException(
+                String.format("El producto '%s' no pertenece al local con ID %s", 
+                    product.getNombre(), localId)
+            );
+        }
+        
+        int stockReservado = product.getStockReservado() != null ? product.getStockReservado() : 0;
+        int stockActual = product.getStock() != null ? product.getStock() : 0;
+        
+        // Si hay reserva existente, usarla
+        if (stockReservado > 0) {
+            if (stockReservado < cantidad) {
+                throw new BadRequestException(
+                    String.format("No hay reserva suficiente. Reservado: %d, requerido: %d",
+                        stockReservado, cantidad)
+                );
+            }
+            
+            if (stockActual < cantidad) {
+                throw new BadRequestException(
+                    String.format("Stock insuficiente. Stock actual: %d, requerido: %d",
+                        stockActual, cantidad)
+                );
+            }
+            
+            // Liberar reserva y descontar stock
+            product.setStockReservado(stockReservado - cantidad);
+            product.setStock(stockActual - cantidad);
+            product.setFechaActualizacion(LocalDateTime.now());
+            
+            if (product.getStock() == 0) {
+                product.setDisponible(false);
+            }
+        } else {
+            // No hay reserva - es un encargo o nunca se reservó
+            // Solo descontar stock si hay suficiente
+            if (stockActual < cantidad) {
+                throw new BadRequestException(
+                    String.format("Stock insuficiente. Stock actual: %d, requerido: %d",
+                        stockActual, cantidad)
+                );
+            }
+            
+            // Solo descontar stock (sin tocar reserva)
+            product.setStock(stockActual - cantidad);
+            product.setFechaActualizacion(LocalDateTime.now());
+            
+            if (product.getStock() == 0) {
+                product.setDisponible(false);
+            }
+        }
+        
+        productRepository.save(product);
+    }
+    
+    /**
+     * Cancela todas las reservas de un producto.
+     */
+    public void cancelarReservas(String productId, String localId) {
+        Product product = getProductById(productId);
+        
+        if (!localId.equals(product.getLocalId())) {
+            return;
+        }
+        
+        product.setStockReservado(0);
+        product.setFechaActualizacion(LocalDateTime.now());
+        productRepository.save(product);
+    }
+    
+    /**
      * Valida si hay stock disponible para un producto.
      */
     public boolean hasStock(String productId, String localId, Integer cantidad) {
         Product product = getProductById(productId);
         
-        // Validar que el producto pertenece al local
         if (!localId.equals(product.getLocalId())) {
             return false;
         }
@@ -215,6 +362,7 @@ public class ProductService {
     
     // Helper methods
     private ProductResponse convertToResponse(Product product) {
+        int stockReservado = product.getStockReservado() != null ? product.getStockReservado() : 0;
         return ProductResponse.builder()
                 .id(product.getId())
                 .nombre(product.getNombre())
@@ -223,6 +371,8 @@ public class ProductService {
                 .categoria(product.getCategoria())
                 .local(product.getLocalId())
                 .stock(product.getStock())
+                .stockReservado(stockReservado)
+                .stockDisponible(product.getStockDisponible())
                 .imageUrl(product.getImageUrl())
                 .fechaCreacion(product.getFechaCreacion())
                 .fechaActualizacion(product.getFechaActualizacion())

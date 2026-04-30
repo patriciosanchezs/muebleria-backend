@@ -1,5 +1,6 @@
 package com.muebleria.controller;
 
+import com.muebleria.dto.AbonoRequest;
 import com.muebleria.dto.SaleRequest;
 import com.muebleria.model.Sale;
 import com.muebleria.service.SaleService;
@@ -340,6 +341,50 @@ public class SaleController {
         saleService.deleteSale(id, authentication);
         return ResponseEntity.noContent().build();
     }
+
+    /**
+     * Registrar un abono en un encargo (ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL)
+     */
+    @PostMapping("/{id}/abonar")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
+    public ResponseEntity<Sale> abonarEncargo(
+            @PathVariable String id,
+            @Valid @RequestBody AbonoRequest abonoRequest,
+            Authentication authentication) {
+        String registradoPor = authentication != null ? authentication.getName() : "Sistema";
+        Sale sale = saleService.abonarEncargo(id, abonoRequest, registradoPor);
+        return ResponseEntity.ok(sale);
+    }
+
+    /**
+     * Cancelar un encargo y eliminar su comisión (ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL)
+     */
+    @PostMapping("/{id}/cancelar")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
+    public ResponseEntity<Sale> cancelarEncargo(
+            @PathVariable String id,
+            @RequestParam(required = false) String motivo,
+            Authentication authentication) {
+        String canceladoPor = authentication != null ? authentication.getName() : "Sistema";
+        String reason = motivo != null ? motivo : "No especificado";
+        Sale sale = saleService.cancelarEncargo(id, canceladoPor, reason);
+        return ResponseEntity.ok(sale);
+    }
+
+/**
+      * Listar encargos (ADMINISTRADOR, ADMIN_LOCAL y ENCARGADO_LOCAL)
+      * Opcionalmente filtrar por estado de pago, local y nombre de cliente
+      */
+     @GetMapping("/encargos")
+     @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'ADMIN_LOCAL', 'ENCARGADO_LOCAL')")
+     public ResponseEntity<List<Sale>> getEncargos(
+             @RequestParam(required = false) String estadoPago,
+             @RequestParam(required = false) String localId,
+             @RequestParam(required = false) String clienteNombre,
+             Authentication authentication) {
+         List<Sale> encargos = saleService.getEncargosFiltered(estadoPago, localId, clienteNombre, authentication);
+         return ResponseEntity.ok(encargos);
+     }
 
     /**
      * Obtener lista de vendedores únicos (ADMINISTRADOR y ADMIN_LOCAL)

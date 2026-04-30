@@ -88,4 +88,17 @@ public class Sale {
     
     // Motivo de rechazo (opcional, solo si estadoAprobacion = RECHAZADA)
     private String motivoRechazo;
+
+    // Gestión de encargos
+    @Builder.Default
+    private String tipoVenta = "NORMAL"; // "NORMAL" o "ENCARGO"
+
+    @Builder.Default
+    private Double totalAbonado = 0.0; // Suma de todos los abonos realizados
+
+    // Saldo pendiente: totalCLP - totalAbonado
+    private Double saldoPendiente;
+
+    // Estado de pago: PENDIENTE, ABONADO_PARCIAL, PAGADO_COMPLETO, CANCELADO
+    private String estadoPago;
 }
