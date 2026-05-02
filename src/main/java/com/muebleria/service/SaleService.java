@@ -1,13 +1,13 @@
 package com.muebleria.service;
 
 import com.muebleria.dto.AbonoRequest;
-import com.muebleria.dto.PagoRequest;
+import com.muebleria.dto.PaymentRequest;
 import com.muebleria.dto.SaleItemRequest;
 import com.muebleria.dto.SaleRequest;
 import com.muebleria.exception.BadRequestException;
 import com.muebleria.exception.ResourceNotFoundException;
 import com.muebleria.model.CanalVenta;
-import com.muebleria.model.Pago;
+import com.muebleria.model.Payment;
 import com.muebleria.model.Product;
 import com.muebleria.model.Role;
 import com.muebleria.model.Sale;
@@ -81,7 +81,7 @@ public class SaleService {
         }
 
         // 3. Validar pagos
-        validatePagos(request.getPagos());
+        validatePayments(request.getPayments());
 
         // Determinar el dueño de la venta: vendedor asignado o usuario de sesión
         String vendedorFinal = request.getVendedorAsignado() != null && !request.getVendedorAsignado().isEmpty()
@@ -158,14 +158,15 @@ public class SaleService {
 
         // 4. Validar que la suma de pagos sea igual al total (solo para ventas normales)
         if (!esEncargo) {
-            validatePaymentTotal(request.getPagos(), totalCLP);
+            validatePaymentTotal(request.getPayments(), totalCLP);
         }
         
-// 5. Convertir PagoRequest a Pago
-        List<Pago> pagos = request.getPagos().stream()
-                .map(pr -> Pago.builder()
-                        .formaDePago(pr.getFormaDePago())
-                        .monto(pr.getMonto())
+// 5. Convert PaymentRequest to Payment
+        List<Payment> payments = request.getPayments().stream()
+                .map(pr -> Payment.builder()
+                        .paymentMethod(pr.getPaymentMethod())
+                        .amount(pr.getAmount())
+                        .paymentDate(LocalDateTime.now())
                         .build())
                 .collect(Collectors.toList());
         
@@ -173,7 +174,7 @@ public class SaleService {
         Sale.SaleBuilder saleBuilder = Sale.builder()
                 .items(saleItems)
                 .totalCLP(totalCLP)
-                .pagos(pagos)  // Lista de pagos múltiples
+                .payments(payments)  // Payment list
                 .vendedor(vendedorFinal)  // Vendedor asignado o usuario de sesión
                 .clienteNombre(request.getClienteNombre())
                 .clienteDireccion(request.getClienteDireccion())
@@ -188,7 +189,7 @@ public class SaleService {
 
         // Campos para encargos
         if (esEncargo) {
-            double totalAbonado = pagos.stream().mapToDouble(Pago::getMonto).sum();
+            double totalAbonado = payments.stream().mapToDouble(Payment::getAmount).sum();
             saleBuilder.totalAbonado(totalAbonado);
             saleBuilder.saldoPendiente(totalCLP - totalAbonado);
             saleBuilder.estadoPago(totalAbonado >= totalCLP ? "PAGADO_COMPLETO" : (totalAbonado > 0 ? "ABONADO_PARCIAL" : "PENDIENTE"));
@@ -300,7 +301,7 @@ public class SaleService {
         
         // Para cada ADMIN_LOCAL, crear comisiones
         for (User adminLocal : adminLocales) {
-            commissionService.createAdminLocalCommission(sale, adminLocal.getId());
+            commissionService.createAdminLocalCommission(sale, adminLocal.getId(), adminLocal.getUsername());
         }
     }
     
@@ -411,8 +412,8 @@ public class SaleService {
         
         if (metodoPago != null && !metodoPago.isEmpty() && !metodoPago.equals("ALL")) {
             sales = sales.stream()
-                    .filter(sale -> sale.getPagos() != null && sale.getPagos().stream()
-                            .anyMatch(pago -> metodoPago.equals(pago.getFormaDePago())))
+                    .filter(sale -> sale.getPayments() != null && sale.getPayments().stream()
+                            .anyMatch(payment -> metodoPago.equals(payment.getPaymentMethod())))
                     .collect(Collectors.toList());
         }
         
@@ -463,7 +464,9 @@ public class SaleService {
         LocalDateTime start = yearMonth.atDay(1).atStartOfDay();
         LocalDateTime end = yearMonth.atEndOfMonth().atTime(23, 59, 59);
         
-        List<Sale> sales = getSalesByDateRange(start, end, authentication);
+        // Usar un rango amplio para incluir encargos con pagos en este mes
+        LocalDateTime wideStart = start.minusMonths(12);
+        List<Sale> sales = getSalesByDateRange(wideStart, end, authentication);
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
@@ -480,19 +483,38 @@ public class SaleService {
             }
         }
         
-        double totalVentas = sales.stream()
-                .mapToDouble(Sale::getTotalCLP)
-                .sum();
+        // Calcular total de ventas sumando pagos que caen dentro del período
+        double totalVentas = 0.0;
+        Set<String> saleIdsIncluded = new HashSet<>();
+        for (Sale sale : sales) {
+            if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                for (Payment payment : sale.getPayments()) {
+                    if (payment != null && payment.getAmount() != null) {
+                        LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                        if (pymtDate != null && !pymtDate.isBefore(start) && !pymtDate.isAfter(end)) {
+                            totalVentas += payment.getAmount();
+                            saleIdsIncluded.add(sale.getId());
+                        }
+                    }
+                }
+            } else {
+                totalVentas += sale.getTotalCLP();
+                saleIdsIncluded.add(sale.getId());
+            }
+        }
         
-        int cantidadVentas = sales.size();
+        int cantidadVentas = saleIdsIncluded.size();
         
-        // Total por método de pago (suma de todos los pagos de cada tipo)
+        // Total por método de pago (suma de todos los pagos de cada tipo en el período)
         Map<String, Double> totalPorMetodo = new HashMap<>();
         for (Sale sale : sales) {
-            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
-                for (Pago pago : sale.getPagos()) {
-                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
-                        totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+            if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                for (Payment payment : sale.getPayments()) {
+                    if (payment != null && payment.getPaymentMethod() != null && payment.getAmount() != null) {
+                        LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                        if (pymtDate != null && !pymtDate.isBefore(start) && !pymtDate.isAfter(end)) {
+                            totalPorMetodo.merge(payment.getPaymentMethod(), payment.getAmount(), Double::sum);
+                        }
                     }
                 }
             }
@@ -501,10 +523,13 @@ public class SaleService {
         // Contar cantidad de ventas por método de pago
         Map<String, Integer> ventasPorMetodo = new HashMap<>();
         for (Sale sale : sales) {
-            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
-                for (Pago pago : sale.getPagos()) {
-                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
-                        ventasPorMetodo.merge(pago.getFormaDePago(), 1, Integer::sum);
+            if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                for (Payment payment : sale.getPayments()) {
+                    if (payment != null && payment.getPaymentMethod() != null && payment.getAmount() != null) {
+                        LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                        if (pymtDate != null && !pymtDate.isBefore(start) && !pymtDate.isAfter(end)) {
+                            ventasPorMetodo.merge(payment.getPaymentMethod(), 1, Integer::sum);
+                        }
                     }
                 }
             }
@@ -526,7 +551,9 @@ public class SaleService {
      * Obtiene estadísticas generales por rango de fechas (filtradas por locales autorizados y opcionalmente por un local específico).
      */
     public Map<String, Object> getSalesStatsByRange(LocalDateTime start, LocalDateTime end, String localFilter, org.springframework.security.core.Authentication authentication) {
-        List<Sale> sales = getSalesByDateRange(start, end, authentication);
+        // Usar un rango amplio para incluir encargos con pagos en este período
+        LocalDateTime wideStart = start != null ? start.minusMonths(12) : LocalDateTime.now().minusMonths(12);
+        List<Sale> sales = getSalesByDateRange(wideStart, end, authentication);
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
@@ -543,19 +570,38 @@ public class SaleService {
             }
         }
         
-        double totalVentas = sales.stream()
-                .mapToDouble(Sale::getTotalCLP)
-                .sum();
+        // Calcular total de ventas sumando pagos que caen dentro del rango
+        double totalVentas = 0.0;
+        Set<String> saleIdsIncluded = new HashSet<>();
+        for (Sale sale : sales) {
+            if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                for (Payment payment : sale.getPayments()) {
+                    if (payment != null && payment.getAmount() != null) {
+                        LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                        if (pymtDate != null && !pymtDate.isBefore(start) && !pymtDate.isAfter(end)) {
+                            totalVentas += payment.getAmount();
+                            saleIdsIncluded.add(sale.getId());
+                        }
+                    }
+                }
+            } else {
+                totalVentas += sale.getTotalCLP();
+                saleIdsIncluded.add(sale.getId());
+            }
+        }
         
-        int cantidadVentas = sales.size();
+        int cantidadVentas = saleIdsIncluded.size();
         
-        // Total por método de pago (suma de todos los pagos de cada tipo)
+        // Total por método de pago (suma de todos los pagos de cada tipo en el rango)
         Map<String, Double> totalPorMetodo = new HashMap<>();
         for (Sale sale : sales) {
-            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
-                for (Pago pago : sale.getPagos()) {
-                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
-                        totalPorMetodo.merge(pago.getFormaDePago(), pago.getMonto(), Double::sum);
+            if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                for (Payment payment : sale.getPayments()) {
+                    if (payment != null && payment.getPaymentMethod() != null && payment.getAmount() != null) {
+                        LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                        if (pymtDate != null && !pymtDate.isBefore(start) && !pymtDate.isAfter(end)) {
+                            totalPorMetodo.merge(payment.getPaymentMethod(), payment.getAmount(), Double::sum);
+                        }
                     }
                 }
             }
@@ -564,10 +610,13 @@ public class SaleService {
         // Contar cantidad de ventas por método de pago
         Map<String, Integer> ventasPorMetodo = new HashMap<>();
         for (Sale sale : sales) {
-            if (sale.getPagos() != null && !sale.getPagos().isEmpty()) {
-                for (Pago pago : sale.getPagos()) {
-                    if (pago != null && pago.getFormaDePago() != null && pago.getMonto() != null) {
-                        ventasPorMetodo.merge(pago.getFormaDePago(), 1, Integer::sum);
+            if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                for (Payment payment : sale.getPayments()) {
+                    if (payment != null && payment.getPaymentMethod() != null && payment.getAmount() != null) {
+                        LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                        if (pymtDate != null && !pymtDate.isBefore(start) && !pymtDate.isAfter(end)) {
+                            ventasPorMetodo.merge(payment.getPaymentMethod(), 1, Integer::sum);
+                        }
                     }
                 }
             }
@@ -749,11 +798,16 @@ public class SaleService {
             endDate = now.toLocalDate().atTime(23, 59, 59);
         }
         
-        List<Sale> allSales = getSalesByDateRange(startDate, endDate, authentication);
+        // Usar un rango amplio para incluir encargos con pagos en este período
+        LocalDateTime wideStartDate = startDate.minusMonths(12);
+        List<Sale> allSales = getSalesByDateRange(wideStartDate, endDate, authentication);
+        
+        // Definir variables finales para usar en lambdas
+        final LocalDateTime periodStart = startDate;
+        final LocalDateTime periodEnd = endDate;
         
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
-            // Validate localId exists
             try {
                 localService.validateActiveLocalId(localFilter);
                 final String localId = localFilter;
@@ -761,7 +815,6 @@ public class SaleService {
                         .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
-                // Si el local no es válido, devolver lista vacía
                 allSales = List.of();
             }
         }
@@ -776,13 +829,33 @@ public class SaleService {
                     String vendedor = entry.getKey();
                     List<Sale> ventas = entry.getValue();
                     
-                    double total = ventas.stream()
-                            .mapToDouble(Sale::getTotalCLP)
-                            .sum();
+                    // Calcular total sumando pagos del período
+                    double total = 0.0;
+                    int cantidad = 0;
+                    for (Sale sale : ventas) {
+                        boolean hasPaymentInPeriod = false;
+                        if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                            for (Payment payment : sale.getPayments()) {
+                                if (payment != null && payment.getAmount() != null) {
+                                    LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                                    if (pymtDate != null && !pymtDate.isBefore(periodStart) && !pymtDate.isAfter(periodEnd)) {
+                                        total += payment.getAmount();
+                                        hasPaymentInPeriod = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (!hasPaymentInPeriod && sale.getPayments() != null && !sale.getPayments().isEmpty() == false) {
+                            total += sale.getTotalCLP();
+                            cantidad++;
+                        } else if (hasPaymentInPeriod) {
+                            cantidad++;
+                        }
+                    }
                     
                     Map<String, Object> vendedorStats = new HashMap<>();
                     vendedorStats.put("vendedor", vendedor);
-                    vendedorStats.put("cantidadVentas", ventas.size());
+                    vendedorStats.put("cantidadVentas", cantidad);
                     vendedorStats.put("totalVentas", total);
                     
                     return vendedorStats;
@@ -821,17 +894,20 @@ public class SaleService {
         LocalDateTime startOfMonth = now.withDayOfMonth(1).toLocalDate().atStartOfDay();
         LocalDateTime endOfMonth = now.toLocalDate().atTime(23, 59, 59);
         
-        // Obtener ventas del mes actual, ya filtradas por locales autorizados
-        List<Sale> allSales = getSalesByDateRange(startOfMonth, endOfMonth, authentication);
+        // Usar un rango amplio para incluir encargos con pagos en este mes
+        LocalDateTime wideStartOfMonth = startOfMonth.minusMonths(12);
+        List<Sale> allSales = getSalesByDateRange(wideStartOfMonth, endOfMonth, authentication);
         
         // Filtrar ventas que no tienen local asignado (datos inconsistentes)
         allSales = allSales.stream()
                 .filter(sale -> sale.getLocalId() != null)
                 .collect(Collectors.toList());
         
+        final LocalDateTime periodStart = startOfMonth;
+        final LocalDateTime periodEnd = endOfMonth;
+        
         // Aplicar filtro de local si se especificó
         if (localFilter != null && !localFilter.isEmpty()) {
-            // Validate localId exists
             try {
                 localService.validateActiveLocalId(localFilter);
                 final String localId = localFilter;
@@ -839,12 +915,11 @@ public class SaleService {
                         .filter(sale -> localId.equals(sale.getLocalId()))
                         .collect(Collectors.toList());
             } catch (IllegalArgumentException e) {
-                // Si el local no es válido, devolver lista vacía
                 allSales = List.of();
             }
         }
         
-        // Agrupar por local (ahora seguro que todos tienen localId != null)
+        // Agrupar por local
         Map<String, List<Sale>> salesByLocal = allSales.stream()
                 .collect(Collectors.groupingBy(Sale::getLocalId));
         
@@ -853,11 +928,29 @@ public class SaleService {
                     String localId = entry.getKey();
                     List<Sale> ventas = entry.getValue();
                     
-                    double totalVentas = ventas.stream()
-                            .mapToDouble(Sale::getTotalCLP)
-                            .sum();
-                    
-                    int cantidadVentas = ventas.size();
+                    // Calcular total sumando pagos del mes
+                    double totalVentas = 0.0;
+                    int cantidadVentas = 0;
+                    for (Sale sale : ventas) {
+                        boolean hasPaymentInPeriod = false;
+                        if (sale.getPayments() != null && !sale.getPayments().isEmpty()) {
+                            for (Payment payment : sale.getPayments()) {
+                                if (payment != null && payment.getAmount() != null) {
+                                    LocalDateTime pymtDate = payment.getPaymentDate() != null ? payment.getPaymentDate() : sale.getFechaVenta();
+                                    if (pymtDate != null && !pymtDate.isBefore(periodStart) && !pymtDate.isAfter(periodEnd)) {
+                                        totalVentas += payment.getAmount();
+                                        hasPaymentInPeriod = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (!hasPaymentInPeriod && (sale.getPayments() == null || sale.getPayments().isEmpty())) {
+                            totalVentas += sale.getTotalCLP();
+                            cantidadVentas++;
+                        } else if (hasPaymentInPeriod) {
+                            cantidadVentas++;
+                        }
+                    }
                     
                     // Ventas por canal
                     Map<String, Long> ventasPorCanal = ventas.stream()
@@ -1042,6 +1135,13 @@ public class SaleService {
             System.err.println("Error creando comisión: " + e.getMessage());
         }
         
+        // Crear comisiones para ADMIN_LOCAL que tienen el local en su lista de comisiones
+        try {
+            createAdminLocalCommissions(approvedSale);
+        } catch (Exception e) {
+            System.err.println("Error creando comisiones ADMIN_LOCAL: " + e.getMessage());
+        }
+        
         return approvedSale;
     }
     
@@ -1089,17 +1189,17 @@ public class SaleService {
         }
 
         // Validar el abono
-        if (abonoRequest.getMonto() == null || abonoRequest.getMonto() <= 0) {
+        if (abonoRequest.getAmount() == null || abonoRequest.getAmount() <= 0) {
             throw new BadRequestException("El monto del abono debe ser mayor a 0");
         }
 
         Set<String> metodosValidos = Set.of("EFECTIVO", "TRANSFERENCIA", "DEBITO", "CREDITO");
-        if (!metodosValidos.contains(abonoRequest.getFormaDePago())) {
-            throw new BadRequestException("Forma de pago inválida: " + abonoRequest.getFormaDePago());
+        if (!metodosValidos.contains(abonoRequest.getPaymentMethod())) {
+            throw new BadRequestException("Forma de pago inválida: " + abonoRequest.getPaymentMethod());
         }
 
         // Calcular nuevo abono
-        double nuevoAbono = abonoRequest.getMonto();
+        double nuevoAbono = abonoRequest.getAmount();
         double totalAbonadoActual = sale.getTotalAbonado() != null ? sale.getTotalAbonado() : 0.0;
         double nuevoTotalAbonado = totalAbonadoActual + nuevoAbono;
 
@@ -1112,18 +1212,19 @@ public class SaleService {
         }
 
         // Crear nuevo pago
-        Pago nuevoPago = Pago.builder()
-                .formaDePago(abonoRequest.getFormaDePago())
-                .monto(nuevoAbono)
+        Payment newPayment = Payment.builder()
+                .paymentMethod(abonoRequest.getPaymentMethod())
+                .amount(nuevoAbono)
+                .paymentDate(LocalDateTime.now())
                 .build();
 
         // Agregar a la lista de pagos
-        List<Pago> pagos = sale.getPagos();
-        if (pagos == null) {
-            pagos = new ArrayList<>();
+        List<Payment> payments = sale.getPayments();
+        if (payments == null) {
+            payments = new ArrayList<>();
         }
-        pagos.add(nuevoPago);
-        sale.setPagos(pagos);
+        payments.add(newPayment);
+        sale.setPayments(payments);
 
         // Actualizar total abonado y saldo pendiente
         sale.setTotalAbonado(nuevoTotalAbonado);
@@ -1160,6 +1261,13 @@ public class SaleService {
         // Validar que no esté ya cancelado
         if ("CANCELADO".equals(sale.getEstadoPago())) {
             throw new BadRequestException("El encargo ya está cancelado");
+        }
+
+        // Devolver stock si el encargo estaba PAGADO_COMPLETO (stock ya fue descontado)
+        if ("PAGADO_COMPLETO".equals(sale.getEstadoPago())) {
+            for (SaleItem item : sale.getItems()) {
+                productService.increaseStock(item.getProductId(), sale.getLocalId(), item.getCantidad());
+            }
         }
 
         // Cambiar estado a cancelado
@@ -1261,12 +1369,14 @@ public class SaleService {
                     }
                 }
                 
+                double precioConDescuento = product.getPrecio() - (itemReq.getDescuento() != null ? itemReq.getDescuento() : 0);
                 SaleItem saleItem = SaleItem.builder()
                         .productId(product.getId())
                         .productName(product.getNombre())
                         .cantidad(itemReq.getCantidad())
                         .precioUnitario(product.getPrecio())
-                        .subtotal(product.getPrecio() * itemReq.getCantidad())
+                        .descuento(itemReq.getDescuento())
+                        .subtotal(precioConDescuento * itemReq.getCantidad())
                         .build();
                 
                 newItems.add(saleItem);
@@ -1287,6 +1397,7 @@ public class SaleService {
                 sale.setItems(newItems);
                 sale.setTotalCLP(newTotal);
                 commissionService.createCommission(sale, sale.getVendedor());
+                createAdminLocalCommissions(sale);
             }
             
             sale.setItems(newItems);
@@ -1294,17 +1405,20 @@ public class SaleService {
         }
         
         // Actualizar métodos de pago
-        if (request.getPagos() != null && !request.getPagos().isEmpty()) {
-            validatePagos(request.getPagos());
-            validatePaymentTotal(request.getPagos(), sale.getTotalCLP());
+        if (request.getPayments() != null && !request.getPayments().isEmpty()) {
+        validatePayments(request.getPayments());
+            // Encargos permiten pagos parciales; ventas normales requieren igualdad
+            if (!"ENCARGO".equals(sale.getTipoVenta())) {
+                validatePaymentTotal(request.getPayments(), sale.getTotalCLP());
+            }
             
-            List<Pago> pagos = request.getPagos().stream()
-                    .map(pr -> Pago.builder()
-                            .formaDePago(pr.getFormaDePago())
-                            .monto(pr.getMonto())
+            List<Payment> pagos = request.getPayments().stream()
+                    .map(pr -> Payment.builder()
+                            .paymentMethod(pr.getPaymentMethod())
+                            .amount(pr.getAmount())
                             .build())
                     .collect(Collectors.toList());
-            sale.setPagos(pagos);
+            sale.setPayments(pagos);
         }
         
         // Actualizar otros campos
@@ -1430,24 +1544,24 @@ public class SaleService {
     /**
      * Valida que todos los pagos tengan una forma de pago válida.
      */
-    private void validatePagos(List<PagoRequest> pagos) {
-        if (pagos == null || pagos.isEmpty()) {
+    private void validatePayments(List<PaymentRequest> payments) {
+        if (payments == null || payments.isEmpty()) {
             throw new BadRequestException("Debe incluir al menos un método de pago");
         }
         
         Set<String> metodosValidos = Set.of("EFECTIVO", "TRANSFERENCIA", "DEBITO", "CREDITO");
         
-        for (PagoRequest pago : pagos) {
-            if (pago.getFormaDePago() == null || pago.getFormaDePago().isEmpty()) {
+        for (PaymentRequest payment : payments) {
+            if (payment.getPaymentMethod() == null || payment.getPaymentMethod().isEmpty()) {
                 throw new BadRequestException("La forma de pago no puede estar vacía");
             }
             
-            if (!metodosValidos.contains(pago.getFormaDePago())) {
-                throw new BadRequestException("Forma de pago inválida: " + pago.getFormaDePago() + 
+            if (!metodosValidos.contains(payment.getPaymentMethod())) {
+                throw new BadRequestException("Forma de pago inválida: " + payment.getPaymentMethod() + 
                     ". Debe ser uno de: EFECTIVO, TRANSFERENCIA, DEBITO, CREDITO");
             }
             
-            if (pago.getMonto() == null || pago.getMonto() <= 0) {
+            if (payment.getAmount() == null || payment.getAmount() <= 0) {
                 throw new BadRequestException("El monto de cada pago debe ser mayor a 0");
             }
         }
@@ -1456,9 +1570,9 @@ public class SaleService {
     /**
      * Valida que la suma de los pagos sea igual al total de la venta.
      */
-    private void validatePaymentTotal(List<PagoRequest> pagos, double total) {
-        double sumaPagos = pagos.stream()
-                .mapToDouble(PagoRequest::getMonto)
+    private void validatePaymentTotal(List<PaymentRequest> payments, double total) {
+        double sumaPagos = payments.stream()
+                .mapToDouble(PaymentRequest::getAmount)
                 .sum();
         
         // Usar una tolerancia para comparar doubles (0.01 CLP)

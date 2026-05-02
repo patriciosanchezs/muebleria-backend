@@ -109,6 +109,7 @@ public class ProductService {
                 .categoria(request.getCategoria())
                 .localId(request.getLocal())
                 .stock(request.getStock())
+                .stockReservado(existingProduct.getStockReservado())
                 .imageUrl(request.getImageUrl())
                 .fechaCreacion(existingProduct.getFechaCreacion())
                 .fechaActualizacion(LocalDateTime.now())
@@ -231,6 +232,7 @@ public class ProductService {
         }
         
         product.setStockReservado(stockReservado + cantidad);
+        product.setReservaTimestamp(LocalDateTime.now());
         product.setFechaActualizacion(LocalDateTime.now());
         productRepository.save(product);
         
@@ -265,7 +267,11 @@ public class ProductService {
         }
         
         int cantidadReal = Math.min(cantidad, stockReservado);
-        product.setStockReservado(stockReservado - cantidadReal);
+        int nuevoStockReservado = stockReservado - cantidadReal;
+        product.setStockReservado(nuevoStockReservado);
+        if (nuevoStockReservado == 0) {
+            product.setReservaTimestamp(null);
+        }
         product.setFechaActualizacion(LocalDateTime.now());
         productRepository.save(product);
     }
@@ -303,7 +309,11 @@ public class ProductService {
             }
             
             // Liberar reserva y descontar stock
-            product.setStockReservado(stockReservado - cantidad);
+            int nuevoStockReservado = stockReservado - cantidad;
+            product.setStockReservado(nuevoStockReservado);
+            if (nuevoStockReservado == 0) {
+                product.setReservaTimestamp(null);
+            }
             product.setStock(stockActual - cantidad);
             product.setFechaActualizacion(LocalDateTime.now());
             
@@ -343,8 +353,29 @@ public class ProductService {
         }
         
         product.setStockReservado(0);
+        product.setReservaTimestamp(null);
         product.setFechaActualizacion(LocalDateTime.now());
         productRepository.save(product);
+    }
+    
+    /**
+     * Limpia reservas expiradas. Las reservas sin timestamp o con timestamp
+     * anterior a 30 minutos son liberadas.
+     */
+    public void limpiarReservasExpiradas() {
+        List<Product> expiredProducts = productRepository.findExpiredReservations(
+            LocalDateTime.now().minusMinutes(30)
+        );
+        
+        for (Product product : expiredProducts) {
+            int stockReservado = product.getStockReservado() != null ? product.getStockReservado() : 0;
+            if (stockReservado > 0) {
+                product.setStockReservado(0);
+                product.setReservaTimestamp(null);
+                product.setFechaActualizacion(LocalDateTime.now());
+                productRepository.save(product);
+            }
+        }
     }
     
     /**

@@ -1,6 +1,6 @@
 package com.muebleria.config;
 
-import com.muebleria.model.Pago;
+import com.muebleria.model.Payment;
 import com.muebleria.model.Sale;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
@@ -16,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Migración para convertir Sale.metodoPago (String) a Sale.pagos (List<Pago>)
+ * Migración para convertir Sale.metodoPago (String) a Sale.payments (List<Payment>)
  * Se ejecuta una sola vez al iniciar la aplicación.
  */
 @Configuration
@@ -32,9 +32,9 @@ public class PaymentMigrationScript {
             System.out.println("=== Iniciando migración de pagos ===");
             
             try {
-                // Buscar ventas que tienen metodoPago pero no tienen pagos
+                // Buscar ventas que tienen metodoPago pero no tienen payments
                 Query query = new Query(Criteria.where("metodoPago").exists(true)
-                        .and("pagos").exists(false));
+                        .and("payments").exists(false));
                 
                 List<Sale> salesWithOldFormat = mongoTemplate.find(query, Sale.class);
                 
@@ -55,17 +55,18 @@ public class PaymentMigrationScript {
                         
                         if (metodoPago != null && !metodoPago.isEmpty()) {
                             // Crear un pago único con el total de la venta
-                            List<Pago> pagos = new ArrayList<>();
-                            Pago pago = Pago.builder()
-                                    .formaDePago(metodoPago)
-                                    .monto(sale.getTotalCLP())
+                            List<Payment> payments = new ArrayList<>();
+                            Payment payment = Payment.builder()
+                                    .paymentMethod(metodoPago)
+                                    .amount(sale.getTotalCLP())
+                                    .paymentDate(sale.getFechaVenta())
                                     .build();
-                            pagos.add(pago);
+                            payments.add(payment);
                             
                             // Actualizar la venta
                             Query updateQuery = new Query(Criteria.where("_id").is(sale.getId()));
                             Update update = new Update()
-                                    .set("pagos", pagos)
+                                    .set("payments", payments)
                                     .unset("metodoPago"); // Eliminar el campo antiguo
                             
                             mongoTemplate.updateFirst(updateQuery, update, Sale.class);

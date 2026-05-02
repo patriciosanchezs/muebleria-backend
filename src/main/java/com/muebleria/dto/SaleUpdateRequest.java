@@ -22,7 +22,7 @@ public class SaleUpdateRequest {
     private List<SaleItemRequest> items;
     
     @NotEmpty(message = "Debe incluir al menos un método de pago")
-    private List<PagoRequest> pagos;
+    private List<PaymentRequest> payments;
     
     @NotBlank(message = "El nombre del cliente es obligatorio")
     private String clienteNombre;

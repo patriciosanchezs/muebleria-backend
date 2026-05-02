@@ -26,7 +26,7 @@ public class Sale {
     private Double totalCLP;
     
     // Métodos de pago utilizados (puede ser uno o varios)
-    private List<Pago> pagos;
+    private List<Payment> payments;
     
     @Builder.Default
     private LocalDateTime fechaVenta = LocalDateTime.now();

@@ -76,7 +76,7 @@ public class AuthService {
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String token = tokenProvider.generateToken(authentication);
         
-        User user = userRepository.findByUsername(request.getUsername())
+        User user = userRepository.findByUsername(request.getUsername().toLowerCase())
                 .orElseThrow(() -> new BadRequestException("Usuario no encontrado"));
         
         List<String> locales = user.getLocalIds() != null 
