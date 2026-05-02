@@ -18,7 +18,7 @@ public class SaleRequest {
     
     @NotEmpty(message = "Debe incluir al menos un método de pago")
     @Valid
-    private List<PagoRequest> pagos;
+    private List<PaymentRequest> payments;
     
     // Datos del cliente
     @NotBlank(message = "El nombre del cliente es requerido")

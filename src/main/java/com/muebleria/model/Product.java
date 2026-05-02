@@ -37,6 +37,9 @@ public class Product {
     @Builder.Default
     private Integer stockReservado = 0;
     
+    // Timestamp de la última reserva de stock (para timeout de reservas abandonadas)
+    private LocalDateTime reservaTimestamp;
+    
     private String imageUrl;
     
     @Builder.Default

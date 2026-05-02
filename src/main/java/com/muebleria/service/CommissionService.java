@@ -104,7 +104,7 @@ public class CommissionService {
      * - Producto >= 140.000 CLP → Comisión = 10.000 CLP
      * Se calcula sobre el precio CON descuento
      */
-    public Commission createAdminLocalCommission(Sale sale, String adminLocalId) {
+    public Commission createAdminLocalCommission(Sale sale, String adminLocalId, String adminLocalUsername) {
         List<CommissionItem> commissionItems = new ArrayList<>();
         double totalComision = 0.0;
         
@@ -135,7 +135,7 @@ public class CommissionService {
         // Crear registro de comisión
         Commission commission = Commission.builder()
             .saleId(sale.getId())
-            .vendedorUsername(adminLocalId) // Usar ID del ADMIN_LOCAL
+            .vendedorUsername(adminLocalUsername) // Usar username del ADMIN_LOCAL para consistencia
             .fechaVenta(sale.getFechaVenta())
             .localId(sale.getLocalId())
             .items(commissionItems)
