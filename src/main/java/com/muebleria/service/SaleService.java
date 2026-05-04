@@ -35,6 +35,7 @@ public class SaleService {
     private final UserRepository userRepository;
     private final AuthHelper authHelper;
     private final LocalService localService;
+    private final PushNotificationService pushNotificationService;
     
     /**
      * Crea una nueva venta, valida stock por local y descuenta productos del local correcto.
@@ -231,6 +232,21 @@ public class SaleService {
         Sale sale = saleBuilder.build();
         
         Sale savedSale = saleRepository.save(sale);
+
+        // Notificar a admins del local si la venta queda pendiente de aprobacion
+        if ("PENDIENTE_APROBACION".equals(savedSale.getEstadoAprobacion())) {
+            try {
+                List<String> adminUsernames = pushNotificationService.findAdminUsernamesByLocal(localId);
+                String localNombre = localService.getLocalById(localId).getNombre();
+                String notifTitle = "Nueva venta pendiente";
+                String notifBody = String.format("%s creo una venta por $%,.0f en %s",
+                        vendedorFinal, totalCLP, localNombre);
+                pushNotificationService.sendPushToUsers(adminUsernames, notifTitle, notifBody,
+                        "/pending-sales", savedSale.getId());
+            } catch (Exception e) {
+                System.err.println("Error enviando notificacion push: " + e.getMessage());
+            }
+        }
 
         // 5. Descontar stock solo si la venta está APROBADA y NO es encargo
         // Para encargos, el stock se descuenta cuando se pague completo
@@ -722,8 +738,25 @@ public class SaleService {
         if (metodoPagoFlete != null && !metodoPagoFlete.isEmpty()) {
             sale.setMetodoPagoFlete(metodoPagoFlete);
         }
-        
-        return saleRepository.save(sale);
+
+        Sale deliveredSale = saleRepository.save(sale);
+
+        // Notificar a admins del local que el pedido fue entregado
+        try {
+            List<String> adminUsernames = pushNotificationService.findAdminUsernamesByLocal(sale.getLocalId());
+            String localNombre = localService.getLocalById(sale.getLocalId()).getNombre();
+            String notifTitle = "Pedido entregado";
+            String notifBody = String.format("El pedido de %s fue entregado por %s en %s",
+                    sale.getClienteNombre() != null ? sale.getClienteNombre() : "cliente",
+                    entregadoPor,
+                    localNombre != null ? localNombre : "el local");
+            pushNotificationService.sendPushToUsers(adminUsernames, notifTitle, notifBody,
+                    "/deliveries", deliveredSale.getId());
+        } catch (Exception e) {
+            System.err.println("Error enviando notificacion de entrega: " + e.getMessage());
+        }
+
+        return deliveredSale;
     }
     
     /**
@@ -1122,7 +1155,21 @@ public class SaleService {
         sale.setFechaAprobacion(LocalDateTime.now());
         
         Sale approvedSale = saleRepository.save(sale);
-        
+
+        // Notificar al vendedor que su venta fue aprobada
+        try {
+            String vendedorUsername = sale.getVendedor();
+            if (vendedorUsername != null && !vendedorUsername.isEmpty()) {
+                String notifTitle = "Venta aprobada";
+                String notifBody = String.format("Tu venta por $%,.0f fue aprobada por %s",
+                        approvedSale.getTotalCLP(), approvedBy);
+                pushNotificationService.sendPushToUser(vendedorUsername, notifTitle, notifBody,
+                        "/approved-sales", approvedSale.getId());
+            }
+        } catch (Exception e) {
+            System.err.println("Error enviando notificacion de aprobacion: " + e.getMessage());
+        }
+
         // Descontar stock ahora que la venta fue aprobada (confirma reserva + descuenta stock)
         for (SaleItem item : approvedSale.getItems()) {
             productService.confirmarReserva(item.getProductId(), approvedSale.getLocalId(), item.getCantidad());
@@ -1162,7 +1209,23 @@ public class SaleService {
         sale.setFechaAprobacion(LocalDateTime.now());
         sale.setMotivoRechazo(motivo);
 
-        return saleRepository.save(sale);
+        Sale rejectedSale = saleRepository.save(sale);
+
+        // Notificar al vendedor que su venta fue rechazada
+        try {
+            String vendedorUsername = sale.getVendedor();
+            if (vendedorUsername != null && !vendedorUsername.isEmpty()) {
+                String notifTitle = "Venta rechazada";
+                String notifBody = String.format("Tu venta por $%,.0f fue rechazada por %s. Motivo: %s",
+                        rejectedSale.getTotalCLP(), rejectedBy, motivo);
+                pushNotificationService.sendPushToUser(vendedorUsername, notifTitle, notifBody,
+                        "/my-sales", rejectedSale.getId());
+            }
+        } catch (Exception e) {
+            System.err.println("Error enviando notificacion de rechazo: " + e.getMessage());
+        }
+
+        return rejectedSale;
     }
 
     /**
